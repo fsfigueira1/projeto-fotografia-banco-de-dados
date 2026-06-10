@@ -7,13 +7,17 @@ const GallerySchema = new mongoose.Schema(
     eventType: { type: String, default: "" },
     description: { type: String, default: "" },
     customerName: { type: String, default: "" },
-    customerEmail: { type: String, default: "" },
-    customerId: { type: String, default: "" },
+    customerEmail: { type: String, trim: true, lowercase: true, default: "" },
+    customerId: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     eventDate: { type: Date, default: null },
-    coverPhotoId: { type: String, default: "" },
-    photoIds: [{ type: String }],
+    coverPhotoId: { type: mongoose.Schema.Types.ObjectId, ref: "Foto", default: null },
     status: { type: String, enum: ["draft", "active", "archived"], default: "draft" },
-    createdBy: { type: String, default: "" }
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true
+    }
   },
   { timestamps: true }
 );

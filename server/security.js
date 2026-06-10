@@ -96,6 +96,15 @@ function createGallerySessionMiddleware(env = null) {
   };
 }
 
+function createOptionalGallerySessionMiddleware(env = null) {
+  return function readGallerySession(req, res, next) {
+    if (!req.headers["x-gallery-token"]) {
+      return next();
+    }
+    return createGallerySessionMiddleware(env)(req, res, next);
+  };
+}
+
 let defaultGalleryMiddleware = null;
 
 function requireGallerySession(req, res, next) {
@@ -115,6 +124,7 @@ function requireAdmin(req, res, next) {
 
 module.exports = {
   createGallerySessionMiddleware,
+  createOptionalGallerySessionMiddleware,
   getClearCookieOptions,
   getSessionCookieOptions,
   parseDurationMs,

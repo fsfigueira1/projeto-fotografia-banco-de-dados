@@ -1,143 +1,122 @@
 const express = require("express");
-const router = express.Router();
+const { z } = require("zod");
 
-const Stripe = require("stripe");
-const { getEnv } = require("../server/config/env");
+const PurchaseModel = require("../models/Compra");
+const { sendError, sendSuccess } = require("../server/http/response");
+const { requireAuth: defaultRequireAuth } = require("../server/middleware/auth");
+const { validate } = require("../server/middleware/validate");
+const { createPurchaseService } = require("../server/services/purchases");
+const { createOptionalGallerySessionMiddleware } = require("../server/security");
 
-const Compra = require("../models/Compra");
-const Foto = require("../models/Foto");
+const checkoutSchema = z
+  .object({
+    photoIds: z.array(z.string().trim().min(1)).max(100).optional(),
+    fotoId: z.string().trim().min(1).optional(),
+    serviceId: z.string().trim().min(1).optional(),
+    paymentMethod: z.enum(["card", "pix", "boleto"]).default("card")
+  })
+  .refine(
+    (input) => input.serviceId || input.fotoId || input.photoIds?.length,
+    "Selecione fotos ou um serviço."
+  )
+  .transform((input) => ({
+    photoIds: input.photoIds?.length
+      ? input.photoIds
+      : input.fotoId
+        ? [input.fotoId]
+        : undefined,
+    serviceId: input.serviceId,
+    paymentMethod: input.paymentMethod
+  }));
 
-let stripe = null;
-
-function getStripe() {
-  if (stripe) return stripe;
-  const key = getEnv().STRIPE_SECRET_KEY;
-  if (!key) {
-    const error = new Error("Stripe não está configurado.");
-    error.status = 503;
-    error.code = "STRIPE_NOT_CONFIGURED";
-    throw error;
-  }
-  stripe = Stripe(key);
-  return stripe;
+function serializePurchase(purchase) {
+  return {
+    _id: String(purchase._id),
+    type: purchase.type,
+    total: purchase.total,
+    currency: purchase.currency,
+    status: purchase.status,
+    sessionId: purchase.sessionId,
+    createdAt: purchase.createdAt || null,
+    paidAt: purchase.paidAt || null
+  };
 }
 
-const SERVICOS = {
-  casamento: { nome: "Pacote Casamento", preco: 1800 },
-  aniversario: { nome: "Pacote Aniversário", preco: 1200 },
-  formatura: { nome: "Pacote Formatura", preco: 1500 },
-  corporativo: { nome: "Pacote Corporativo", preco: 900 }
-};
+function createPaymentRouter({
+  purchaseService = null,
+  Purchase = PurchaseModel,
+  requireAuth = defaultRequireAuth,
+  readGallerySession = createOptionalGallerySessionMiddleware()
+} = {}) {
+  const router = express.Router();
+  const getPurchaseService = () => purchaseService || createPurchaseService();
 
-router.post("/criar-checkout", async (req, res) => {
-  try {
-    const { fotoId, photoIds, serviceId, userId, paymentMethod, paymentProvider, galleryId, accessCodeId } = req.body;
-    if (!userId) {
-      return res.status(400).json({ error: "userId e obrigatorio." });
-    }
+  const checkoutHandler = async (req, res, next) => {
+    try {
+      const result = await getPurchaseService().createCheckout({
+        userId: String(req.user._id),
+        gallerySession: req.gallerySession,
+        photoIds: req.body.photoIds,
+        serviceId: req.body.serviceId,
+        paymentMethod: req.body.paymentMethod
+      });
 
-    const normalizedMethod = String(paymentMethod || "card").toLowerCase();
-    const paymentMethodTypes =
-      normalizedMethod === "pix"
-        ? ["pix"]
-        : normalizedMethod === "boleto"
-          ? ["boleto"]
-          : ["card"];
-
-    let lineItem = null;
-    let metadata = { userId: String(userId) };
-    let purchaseType = "photo";
-    let total = 0;
-    let resolvedPhotoIds = [];
-
-    if (serviceId) {
-      const service = SERVICOS[String(serviceId)];
-      if (!service) {
-        return res.status(404).json({ error: "Serviço nao encontrado." });
-      }
-
-      total = Number(service.preco || 0);
-      lineItem = {
-        price_data: {
-          currency: "brl",
-          product_data: { name: service.nome },
-          unit_amount: Math.round(total * 100)
+      return sendSuccess(res, {
+        status: 201,
+        data: {
+          purchase: serializePurchase(result.purchase),
+          checkoutUrl: result.checkoutUrl,
+          url: result.checkoutUrl
         },
-        quantity: 1
-      };
-
-      metadata = {
-        ...metadata,
-        serviceId: String(serviceId),
-        galleryId: galleryId ? String(galleryId) : undefined,
-        accessCodeId: accessCodeId ? String(accessCodeId) : undefined,
-        type: "service"
-      };
-      purchaseType = "service";
-    } else {
-      resolvedPhotoIds = Array.isArray(photoIds) && photoIds.length ? photoIds : fotoId ? [fotoId] : [];
-      if (!resolvedPhotoIds.length) {
-        return res.status(400).json({ error: "fotoId ou photoIds sao obrigatorios." });
-      }
-
-      const fotos = await Foto.find({ _id: { $in: resolvedPhotoIds } });
-      if (!fotos.length) {
-        return res.status(404).json({ error: "Fotos nao encontradas." });
-      }
-
-      total = fotos.reduce((sum, foto) => sum + Number(foto.preco || 50), 0);
-      lineItem = {
-        price_data: {
-          currency: "brl",
-          product_data: {
-            name: `Fotos selecionadas - ${fotos.length} itens`
-          },
-          unit_amount: Math.round(total * 100)
-        },
-        quantity: 1
-      };
-
-      metadata = {
-        ...metadata,
-        fotoId: resolvedPhotoIds[0],
-        photoIds: resolvedPhotoIds.join(","),
-        galleryId: galleryId ? String(galleryId) : undefined,
-        accessCodeId: accessCodeId ? String(accessCodeId) : undefined,
-        type: "photo"
-      };
+        message: "Checkout criado com sucesso."
+      });
+    } catch (error) {
+      return next(error);
     }
+  };
 
-    const frontendUrl = getEnv().FRONTEND_URLS[0];
-    const session = await getStripe().checkout.sessions.create({
-      payment_method_types: paymentMethodTypes,
-      mode: "payment",
-      metadata,
-      line_items: [lineItem],
-      success_url: `${frontendUrl}/sucesso.html?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${frontendUrl}/cancelado.html?session_id={CHECKOUT_SESSION_ID}`
-    });
+  router.post(
+    "/checkout",
+    requireAuth,
+    readGallerySession,
+    validate({ body: checkoutSchema }),
+    checkoutHandler
+  );
 
-    await Compra.create({
-      userId,
-      fotoId: fotoId || undefined,
-      photoIds: resolvedPhotoIds,
-      serviceId: serviceId || undefined,
-      galleryId: galleryId || undefined,
-      accessCodeId: accessCodeId || undefined,
-      type: purchaseType,
-      paymentMethod: normalizedMethod,
-      paymentProvider: String(paymentProvider || "stripe").toLowerCase(),
-      total,
-      pago: false,
-      status: "pending",
-      sessionId: session.id
-    });
+  router.post(
+    "/criar-checkout",
+    requireAuth,
+    readGallerySession,
+    validate({ body: checkoutSchema }),
+    checkoutHandler
+  );
 
-    res.json({ url: session.url });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Nao foi possivel iniciar o checkout." });
-  }
-});
+  router.get("/:id", requireAuth, async (req, res, next) => {
+    try {
+      const purchase = await Purchase.findOne({
+        _id: req.params.id,
+        userId: req.user._id
+      });
+      if (!purchase) {
+        return sendError(res, {
+          status: 404,
+          message: "Compra não encontrada.",
+          error: "PURCHASE_NOT_FOUND"
+        });
+      }
 
-module.exports = router;
+      return sendSuccess(res, {
+        data: { purchase: serializePurchase(purchase) },
+        message: "Status da compra carregado."
+      });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  return router;
+}
+
+module.exports = createPaymentRouter();
+module.exports.createPaymentRouter = createPaymentRouter;
+module.exports.serializePurchase = serializePurchase;

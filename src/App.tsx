@@ -34,7 +34,6 @@ import ScrollExpandMedia from "@/components/ui/scroll-expansion-hero";
 type Mode = "login" | "register";
 type Page = "home" | "admin";
 type PaymentMethod = "card" | "pix" | "boleto";
-type PaymentProvider = "stripe" | "mercadopago";
 
 type User = {
   _id: string;
@@ -254,7 +253,6 @@ function App() {
 
   const [selectedPhotoIds, setSelectedPhotoIds] = useState<string[]>([]);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("pix");
-  const [paymentProvider, setPaymentProvider] = useState<PaymentProvider>("stripe");
 
   const [adminOverview, setAdminOverview] = useState<AdminOverview>({ galleries: [], accessCodes: [], purchases: [] });
   const [adminLoading, setAdminLoading] = useState(false);
@@ -531,18 +529,21 @@ function App() {
       return;
     }
 
+    const checkoutHeaders: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...authHeaders(user)
+    };
+    if (gallerySession?.token) {
+      checkoutHeaders["x-gallery-token"] = gallerySession.token;
+    }
+
     const response = await fetch(apiUrl("/pagamento/criar-checkout"), {
       method: "POST",
       credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-        ...authHeaders(user)
-      },
+      headers: checkoutHeaders,
       body: JSON.stringify({
         ...payload,
-        userId: user?._id,
-        paymentMethod,
-        paymentProvider
+        paymentMethod
       })
     });
 
@@ -1050,7 +1051,7 @@ function App() {
                     {[
                       "Senha por evento",
                       "Carrinho privado",
-                      "Checkout com Stripe ou Mercado Pago"
+                      "Checkout seguro com Stripe"
                     ].map((item) => (
                       <div key={item} className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-white/75">
                         {item}
@@ -1130,7 +1131,7 @@ function App() {
                     {[
                       "Senha por evento",
                       "Carrinho privado",
-                      "Pagamento com Stripe ou Mercado Pago"
+                      "Pagamento seguro com Stripe"
                     ].map((item) => (
                       <div key={item} className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-4 text-sm text-white/78">
                         {item}
@@ -1394,23 +1395,6 @@ function App() {
                       ))}
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2">
-                      {(["stripe", "mercadopago"] as PaymentProvider[]).map((provider) => (
-                        <button
-                          key={provider}
-                          type="button"
-                          onClick={() => setPaymentProvider(provider)}
-                          className={`rounded-2xl border px-3 py-3 text-sm font-semibold capitalize transition ${
-                            paymentProvider === provider
-                              ? "border-white/25 bg-white text-black"
-                              : "border-white/10 bg-black/30 text-white/75 hover:bg-white/[0.08]"
-                          }`}
-                        >
-                          {provider}
-                        </button>
-                      ))}
-                    </div>
-
                     <button
                       type="button"
                       onClick={() => void createCheckout({ serviceId: serviceTarget.id })}
@@ -1616,23 +1600,6 @@ function App() {
                           }`}
                         >
                           {method}
-                        </button>
-                      ))}
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2">
-                      {(["stripe", "mercadopago"] as PaymentProvider[]).map((provider) => (
-                        <button
-                          key={provider}
-                          type="button"
-                          onClick={() => setPaymentProvider(provider)}
-                          className={`rounded-2xl border px-3 py-3 text-sm font-semibold capitalize transition ${
-                            paymentProvider === provider
-                              ? "border-white/25 bg-white text-black"
-                              : "border-white/10 bg-black/30 text-white/75 hover:bg-white/[0.08]"
-                          }`}
-                        >
-                          {provider}
                         </button>
                       ))}
                     </div>

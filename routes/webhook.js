@@ -1,63 +1,50 @@
 const express = require("express");
-const router = express.Router();
 
-const Stripe = require("stripe");
-const { getEnv } = require("../server/config/env");
+const { sendError, sendSuccess } = require("../server/http/response");
+const { createStripeWebhookService } = require("../server/services/stripe-webhook");
 
-const Compra = require("../models/Compra");
-const AccessCode = require("../models/AccessCode");
+function createStripeWebhookRouter({ webhookService = null } = {}) {
+  const router = express.Router();
+  const getWebhookService = () =>
+    webhookService || createStripeWebhookService();
 
-let stripe = null;
-
-function getStripe() {
-  if (stripe) return stripe;
-  const key = getEnv().STRIPE_SECRET_KEY;
-  if (!key) {
-    const error = new Error("Stripe não está configurado.");
-    error.status = 503;
-    error.code = "STRIPE_NOT_CONFIGURED";
-    throw error;
-  }
-  stripe = Stripe(key);
-  return stripe;
-}
-
-router.post("/", express.json(), async (req, res) => {
-  try {
-    const event = req.body;
-
-    if (event?.type === "checkout.session.completed") {
-      const session = event.data.object;
-      const fullSession = await getStripe().checkout.sessions.retrieve(session.id);
-
-      const purchase = await Compra.findOneAndUpdate(
-        { sessionId: session.id },
-        {
-          pago: true,
-          status: "paid",
-          userId: fullSession.metadata?.userId || undefined,
-          fotoId: fullSession.metadata?.fotoId || undefined,
-          photoIds: fullSession.metadata?.photoIds ? fullSession.metadata.photoIds.split(",") : undefined,
-          serviceId: fullSession.metadata?.serviceId || undefined,
-          galleryId: fullSession.metadata?.galleryId || undefined,
-          accessCodeId: fullSession.metadata?.accessCodeId || undefined
-        },
-        { new: true }
-      );
-
-      if (purchase?.accessCodeId) {
-        await AccessCode.findByIdAndUpdate(purchase.accessCodeId, {
-          active: true,
-          lastUsedAt: new Date()
-        });
-      }
+  router.post("/", async (req, res, next) => {
+    const signature = req.headers["stripe-signature"];
+    if (!signature) {
+      return sendError(res, {
+        status: 400,
+        message: "Assinatura Stripe obrigatória.",
+        error: "WEBHOOK_SIGNATURE_REQUIRED"
+      });
     }
 
-    res.sendStatus(200);
-  } catch (error) {
-    console.error(error);
-    res.sendStatus(500);
-  }
-});
+    let event;
+    try {
+      event = getWebhookService().constructEvent(req.body, signature);
+    } catch {
+      return sendError(res, {
+        status: 400,
+        message: "Assinatura Stripe inválida.",
+        error: "WEBHOOK_SIGNATURE_INVALID"
+      });
+    }
 
-module.exports = router;
+    try {
+      const result = await getWebhookService().handleEvent(event);
+      return sendSuccess(res, {
+        data: {
+          received: true,
+          handled: Boolean(result?.handled)
+        },
+        message: "Webhook recebido."
+      });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  return router;
+}
+
+module.exports = createStripeWebhookRouter();
+module.exports.createStripeWebhookRouter = createStripeWebhookRouter;

@@ -72,6 +72,14 @@ function serializePhoto(photo, galleryToken = null) {
   };
 }
 
+function buildGalleryPurchaseFilter(session) {
+  return {
+    galleryId: String(session.galleryId),
+    accessCodeId: String(session.accessCodeId),
+    status: "paid"
+  };
+}
+
 async function resolveAccessCode(inputCode) {
   const normalized = normalizeCode(inputCode);
   if (!normalized) return null;
@@ -135,10 +143,9 @@ router.get("/me", requireGallerySession, async (req, res) => {
     }
 
     const photos = await Foto.find({ galleryId: String(gallery._id) }).sort({ createdAt: -1 });
-    const purchases = await Compra.find({
-      galleryId: String(gallery._id),
-      pago: true
-    });
+    const purchases = await Compra.find(
+      buildGalleryPurchaseFilter(req.gallerySession)
+    );
 
     res.json({
       gallery: serializeGallery(gallery),
@@ -230,7 +237,10 @@ router.patch("/admin/galleries/:id", requireAuth, requireAdmin, async (req, res)
 router.delete("/admin/galleries/:id", requireAuth, requireAdmin, async (req, res) => {
   try {
     await AccessCode.deleteMany({ galleryId: req.params.id });
-    await Compra.updateMany({ galleryId: req.params.id }, { $set: { galleryId: "" } });
+    await Compra.updateMany(
+      { galleryId: req.params.id },
+      { $set: { galleryId: null } }
+    );
     const deleted = await Gallery.findByIdAndDelete(req.params.id);
     if (!deleted) {
       return res.status(404).json({ error: "Galeria não encontrada." });
@@ -343,3 +353,4 @@ router.get("/:galleryId", requireGallerySession, async (req, res) => {
 });
 
 module.exports = router;
+module.exports.buildGalleryPurchaseFilter = buildGalleryPurchaseFilter;

@@ -1,54 +1,124 @@
 const express = require("express");
-const router = express.Router();
 
-const Foto = require("../models/Foto");
-const Compra = require("../models/Compra");
-const { requireGallerySession } = require("../server/security");
+const PhotoModel = require("../models/Foto");
+const PurchaseModel = require("../models/Compra");
+const { sendSuccess } = require("../server/http/response");
+const { requireAuth: defaultRequireAuth } = require("../server/middleware/auth");
+const {
+  requireGallerySession: defaultRequireGallerySession
+} = require("../server/security");
 
-router.get("/", async (_req, res) => {
-  try {
-    const fotos = await Foto.find({
-      $or: [{ galleryId: { $in: [null, ""] } }, { requiresAccess: false }]
-    })
-      .sort({ createdAt: -1 })
-      .limit(60);
+function createPhotoRouter({
+  Photo = PhotoModel,
+  Purchase = PurchaseModel,
+  requireAuth = defaultRequireAuth,
+  requireGallerySession = defaultRequireGallerySession
+} = {}) {
+  const router = express.Router();
 
-    res.json(fotos);
-  } catch (err) {
-    console.error(err);
-    res.status(500).send("Erro ao carregar galeria pública");
-  }
-});
+  router.get("/", async (_req, res, next) => {
+    try {
+      const photos = await Photo.find({
+        $or: [
+          { galleryId: { $in: [null, ""] } },
+          { requiresAccess: false }
+        ]
+      })
+        .sort({ createdAt: -1 })
+        .limit(60);
 
-router.get("/compradas/:userId", async (req, res) => {
-  try {
-    const compras = await Compra.find({
-      userId: req.params.userId,
-      pago: true
-    });
-
-    const photosIds = compras.flatMap((c) => c.photoIds || (c.fotoId ? [c.fotoId] : []));
-    const fotos = await Foto.find({ _id: { $in: photosIds } });
-
-    res.json(fotos);
-  } catch (err) {
-    console.error(err);
-    res.status(500).send("Erro ao carregar fotos compradas");
-  }
-});
-
-router.get("/galeria/:galleryId", requireGallerySession, async (req, res) => {
-  try {
-    if (String(req.gallerySession.galleryId) !== String(req.params.galleryId)) {
-      return res.status(403).json({ error: "Acesso não autorizado." });
+      return sendSuccess(res, {
+        data: { photos },
+        message: "Galeria pública carregada."
+      });
+    } catch (error) {
+      return next(error);
     }
+  });
 
-    const fotos = await Foto.find({ galleryId: req.params.galleryId }).sort({ createdAt: -1 });
-    res.json(fotos);
-  } catch (err) {
-    console.error(err);
-    res.status(500).send("Erro ao carregar fotos da galeria");
-  }
-});
+  router.get("/purchased", requireAuth, async (req, res, next) => {
+    try {
+      const purchases = await Purchase.find({
+        userId: req.user._id,
+        status: "paid"
+      });
+      const photoIds = [
+        ...new Set(
+          purchases.flatMap((purchase) =>
+            (purchase.photoIds || []).map(String)
+          )
+        )
+      ];
+      const photos = photoIds.length
+        ? await Photo.find({ _id: { $in: photoIds } })
+        : [];
 
-module.exports = router;
+      return sendSuccess(res, {
+        data: { photos },
+        message: "Fotos compradas carregadas."
+      });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  router.get(
+    "/gallery/:galleryId",
+    requireGallerySession,
+    async (req, res, next) => {
+      try {
+        if (
+          String(req.gallerySession.galleryId) !==
+          String(req.params.galleryId)
+        ) {
+          const error = new Error("Acesso não autorizado.");
+          error.status = 403;
+          error.code = "GALLERY_FORBIDDEN";
+          throw error;
+        }
+
+        const photos = await Photo.find({
+          galleryId: req.params.galleryId
+        }).sort({ createdAt: -1 });
+        return sendSuccess(res, {
+          data: { photos },
+          message: "Fotos da galeria carregadas."
+        });
+      } catch (error) {
+        return next(error);
+      }
+    }
+  );
+
+  router.get(
+    "/galeria/:galleryId",
+    requireGallerySession,
+    async (req, res, next) => {
+      try {
+        if (
+          String(req.gallerySession.galleryId) !==
+          String(req.params.galleryId)
+        ) {
+          const error = new Error("Acesso não autorizado.");
+          error.status = 403;
+          error.code = "GALLERY_FORBIDDEN";
+          throw error;
+        }
+        const photos = await Photo.find({
+          galleryId: req.params.galleryId
+        }).sort({ createdAt: -1 });
+        return sendSuccess(res, {
+          data: { photos },
+          message: "Fotos da galeria carregadas."
+        });
+      } catch (error) {
+        return next(error);
+      }
+    }
+  );
+
+  return router;
+}
+
+module.exports = createPhotoRouter();
+module.exports.createPhotoRouter = createPhotoRouter;
