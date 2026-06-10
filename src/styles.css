@@ -17,6 +17,35 @@ html {
   scroll-behavior: smooth;
 }
 
+body::before,
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+body::before {
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 120px 120px;
+  mask-image: radial-gradient(circle at center, black 42%, transparent 100%);
+  opacity: 0.28;
+  animation: grid-drift 28s linear infinite;
+}
+
+body::after {
+  background:
+    radial-gradient(circle at 20% 20%, rgba(255, 26, 26, 0.12), transparent 18%),
+    radial-gradient(circle at 85% 15%, rgba(255, 255, 255, 0.06), transparent 16%),
+    radial-gradient(circle at 75% 75%, rgba(255, 26, 26, 0.08), transparent 18%),
+    linear-gradient(180deg, rgba(5, 5, 5, 0.08), rgba(5, 5, 5, 0.2));
+  mix-blend-mode: screen;
+  opacity: 0.8;
+}
+
 body {
   margin: 0;
   min-width: 320px;
@@ -29,10 +58,11 @@ body {
     Inter,
     ui-sans-serif,
     system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
+  -apple-system,
+  BlinkMacSystemFont,
+  "Segoe UI",
     sans-serif;
+  position: relative;
 }
 
 * {
@@ -61,6 +91,46 @@ img {
   box-shadow: var(--shadow);
 }
 
+.noise-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.08;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.09) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.09) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mix-blend-mode: soft-light;
+}
+
+.premium-card {
+  background: rgba(10, 10, 12, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(22px);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.04) inset,
+    0 24px 80px rgba(0, 0, 0, 0.44);
+}
+
+.premium-glow {
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.06),
+    0 0 48px rgba(255, 26, 26, 0.12),
+    0 24px 80px rgba(0, 0, 0, 0.4);
+}
+
+.magnetic {
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    border-color 180ms ease,
+    background-color 180ms ease;
+}
+
+.magnetic:hover {
+  transform: translateY(-2px);
+}
+
 .section-shell {
   position: relative;
   z-index: 1;
@@ -80,4 +150,36 @@ img {
 
 .mask-fade {
   mask-image: linear-gradient(180deg, black 72%, transparent 100%);
+}
+
+@keyframes float-slow {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.55;
+  }
+  50% {
+    transform: translate3d(0, -18px, 0) scale(1.1);
+    opacity: 1;
+  }
+}
+
+@keyframes grid-drift {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(-84px, -84px, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }

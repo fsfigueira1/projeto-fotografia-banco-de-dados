@@ -23,7 +23,7 @@ export function ScrollTriggered({ items, onAction }: ScrollTriggeredProps) {
   return (
     <div className="w-full">
       <div
-        className="relative overflow-hidden rounded-[28px] border border-white/10 bg-[#1b1f27] px-4 py-14 shadow-[0_24px_90px_rgba(0,0,0,0.28)] md:px-8"
+        className="relative overflow-hidden rounded-[36px] border border-white/10 bg-[linear-gradient(180deg,rgba(10,10,12,0.86),rgba(6,6,8,0.94))] px-4 py-14 shadow-[0_30px_100px_rgba(0,0,0,0.42)] backdrop-blur-xl md:px-8"
         style={container}
       >
         {items.map((item, i) => (
@@ -41,32 +41,36 @@ interface CardProps {
 }
 
 function Card({ item, i, onAction }: CardProps) {
-  const background = `linear-gradient(306deg, rgba(255,255,255,0.08), rgba(213,157,99,0.12))`;
-
   return (
     <motion.div
       className={`card-container-${i}`}
       style={cardContainer}
-      initial={{ x: i % 2 === 0 ? -120 : 120, y: 90, opacity: 0 }}
-      whileInView={{ x: 0, y: 0, opacity: 1 }}
+      initial={{ x: i % 2 === 0 ? -90 : 90, y: 60, opacity: 0, scale: 0.98 }}
+      whileInView={{ x: 0, y: 0, opacity: 1, scale: 1 }}
       viewport={{ amount: 0.7, once: false }}
-      transition={{ type: "spring", bounce: 0.22, duration: 0.8, delay: i * 0.04 }}
+      transition={{ type: "spring", bounce: 0.18, duration: 0.75, delay: i * 0.05 }}
     >
-      <div style={{ ...splash, background }} />
-      <motion.article style={card} variants={cardVariants} className="card glass overflow-hidden">
+      <motion.article
+        style={card}
+        variants={cardVariants}
+        whileHover={{ y: -6, rotate: -0.25, scale: 1.01 }}
+        transition={{ type: "spring", bounce: 0.16, duration: 0.55 }}
+        className="card overflow-hidden rounded-[30px] border border-white/10 bg-white/[0.04] shadow-[0_24px_80px_rgba(0,0,0,0.35)] backdrop-blur-xl"
+      >
         <div className="relative h-full w-full">
-          <img src={item.image} alt={item.title} className="h-full w-full object-cover" />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/88 via-black/24 to-transparent" />
+          <img src={item.image} alt={item.title} className="h-full w-full object-cover transition duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] hover:scale-105" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/92 via-black/18 to-transparent" />
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.08),transparent_24%)]" />
 
           <div className="absolute left-4 top-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/35 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.22em] text-white/80 backdrop-blur-md">
-            {item.featured ? <Sparkles className="h-3.5 w-3.5 text-[#d59d63]" /> : <ImageIcon className="h-3.5 w-3.5 text-[#8dd7c6]" />}
+            {item.featured ? <Sparkles className="h-3.5 w-3.5 text-[#ff1a1a]" /> : <ImageIcon className="h-3.5 w-3.5 text-white/70" />}
             {item.featured ? "Destaque" : "Foto"}
           </div>
 
           <div className="absolute bottom-0 left-0 right-0 p-5">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <h3 className="truncate text-2xl font-black tracking-[-0.04em] text-white">{item.title}</h3>
+                <h3 className="truncate text-2xl font-black tracking-[-0.05em] text-white">{item.title}</h3>
                 <div className="mt-2 flex items-center gap-2 text-sm text-white/72">
                   <MapPin className="h-4 w-4 text-white/55" />
                   <span className="truncate">{item.subtitle}</span>
@@ -75,7 +79,7 @@ function Card({ item, i, onAction }: CardProps) {
               <button
                 type="button"
                 onClick={() => onAction?.(item.id)}
-                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/12 bg-white px-0 text-black transition hover:scale-[1.02]"
+                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/12 bg-white text-black transition hover:scale-[1.03]"
                 aria-label={`Comprar ${item.title}`}
               >
                 <ChevronRight className="h-4 w-4" />
@@ -84,7 +88,7 @@ function Card({ item, i, onAction }: CardProps) {
 
             <div className="mt-4 flex items-center justify-between">
               <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/35 px-3 py-1 text-xs font-semibold text-white/80 backdrop-blur-md">
-                <Heart className="h-3.5 w-3.5 text-[#d59d63]" />
+                <Heart className="h-3.5 w-3.5 text-[#ff1a1a]" />
                 {item.price || "Consultar valor"}
               </div>
               <div className="text-xs font-semibold uppercase tracking-[0.22em] text-white/45">
@@ -136,12 +140,12 @@ const cardContainer: CSSProperties = {
 };
 
 const card: CSSProperties = {
-  width: 320,
-  height: 460,
-  borderRadius: 20,
-  background: "#11131a",
+  width: 360,
+  height: 520,
+  borderRadius: 30,
+  background: "#0b0b0d",
   boxShadow:
-    "0 0 1px rgba(0,0,0,0.08), 0 0 2px rgba(0,0,0,0.08), 0 0 4px rgba(0,0,0,0.08), 0 0 8px rgba(0,0,0,0.08), 0 0 16px rgba(0,0,0,0.08)",
+    "0 0 1px rgba(0,0,0,0.08), 0 0 2px rgba(0,0,0,0.08), 0 0 8px rgba(0,0,0,0.08), 0 0 24px rgba(0,0,0,0.12)",
   transformOrigin: "10% 60%"
 };
 

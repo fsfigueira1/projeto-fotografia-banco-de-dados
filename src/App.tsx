@@ -26,6 +26,7 @@ import {
   Upload
 } from "lucide-react";
 import { AuthModal } from "@/components/AuthModal";
+import { PremiumHome } from "@/components/PremiumHome";
 import { getApiUrl } from "@/lib/api";
 import { ScrollTriggered, type PhotoStackItem } from "@/components/ui/stack-card";
 import ScrollExpandMedia from "@/components/ui/scroll-expansion-hero";
@@ -164,6 +165,27 @@ const services: Service[] = [
   }
 ];
 
+const heroSignals = [
+  "Galerias privadas por evento",
+  "Senha e checkout seguros",
+  "Download liberado após pagamento"
+];
+
+const experienceSteps = [
+  {
+    title: "Escolha o serviço",
+    description: "Casamento, aniversário, formatura ou corporativo com proposta visual premium."
+  },
+  {
+    title: "Admin gera a senha",
+    description: "Cada evento recebe um código exclusivo, ativado após confirmação."
+  },
+  {
+    title: "Cliente entra na galeria",
+    description: "Acesso privado por senha para selecionar, comprar e baixar depois do pagamento."
+  }
+];
+
 const STORE_USER_KEY = "ff:user";
 const STORE_GALLERY_KEY = "ff:gallery-session";
 function readStoredUser(): User | null {
@@ -222,6 +244,7 @@ function App() {
   const [page, setPage] = useState<Page>("home");
   const [menuOpen, setMenuOpen] = useState(false);
   const [serviceTarget, setServiceTarget] = useState<Service | null>(null);
+  const [booted, setBooted] = useState(false);
 
   const [galleryAccessOpen, setGalleryAccessOpen] = useState(false);
   const [galleryCode, setGalleryCode] = useState("");
@@ -294,6 +317,39 @@ function App() {
     }
   }, [gallerySession?.gallery?._id]);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => setBooted(true), 900);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const updateCursor = (event: PointerEvent) => {
+      if (event.pointerType !== "mouse") {
+        root.style.setProperty("--cursor-opacity", "0");
+        return;
+      }
+
+      root.style.setProperty("--cursor-x", `${event.clientX}px`);
+      root.style.setProperty("--cursor-y", `${event.clientY}px`);
+      root.style.setProperty("--cursor-opacity", "1");
+    };
+
+    const hideCursor = () => {
+      root.style.setProperty("--cursor-opacity", "0");
+    };
+
+    window.addEventListener("pointermove", updateCursor);
+    window.addEventListener("pointerdown", updateCursor);
+    window.addEventListener("pointerleave", hideCursor);
+
+    return () => {
+      window.removeEventListener("pointermove", updateCursor);
+      window.removeEventListener("pointerdown", updateCursor);
+      window.removeEventListener("pointerleave", hideCursor);
+    };
+  }, []);
+
   const isAdmin = user?.email === "123" && user?.role === "admin";
   const ownedPhotoIds = useMemo(() => {
     const owned = new Set<string>();
@@ -315,6 +371,20 @@ function App() {
   const selectedTotal = useMemo(
     () => selectedPhotos.reduce((sum, photo) => sum + Number(photo.preco || 0), 0),
     [selectedPhotos]
+  );
+
+  const ambientParticles = useMemo(
+    () =>
+      Array.from({ length: 22 }, (_, index) => {
+        const left = (index * 13 + 9) % 100;
+        const top = (index * 17 + 7) % 100;
+        const size = 2 + (index % 4);
+        const delay = (index % 8) * 0.6;
+        const duration = 18 + (index % 6) * 5;
+
+        return { left, top, size, delay, duration };
+      }),
+    []
   );
 
   async function refreshGallerySession(token: string) {
@@ -730,7 +800,64 @@ function App() {
   );
 
   return (
-    <div className="min-h-screen bg-black text-white">
+    <div className="relative min-h-screen overflow-hidden bg-[#050505] text-white">
+      <div aria-hidden="true" className="fixed inset-0 -z-20 bg-[radial-gradient(circle_at_top_left,rgba(255,26,26,0.14),transparent_26%),radial-gradient(circle_at_80%_20%,rgba(255,255,255,0.06),transparent_18%),linear-gradient(180deg,#050505_0%,#070707_42%,#0b0b0d_100%)]" />
+      <div aria-hidden="true" className="fixed inset-0 -z-10 opacity-[0.16] [background-image:linear-gradient(rgba(255,255,255,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.08)_1px,transparent_1px)] [background-size:84px_84px] [mask-image:radial-gradient(circle_at_center,black_42%,transparent_100%)]" />
+      <div aria-hidden="true" className="fixed inset-0 -z-10 bg-[radial-gradient(circle_at_50%_20%,rgba(255,26,26,0.22),transparent_30%),radial-gradient(circle_at_20%_80%,rgba(255,255,255,0.05),transparent_22%),radial-gradient(circle_at_80%_70%,rgba(255,26,26,0.1),transparent_26%)] opacity-70 blur-3xl" />
+      <div aria-hidden="true" className="fixed inset-0 -z-10 opacity-40 mix-blend-screen">
+        {ambientParticles.map((particle) => (
+          <span
+            key={`${particle.left}-${particle.top}-${particle.delay}`}
+            className="absolute rounded-full bg-white/80 shadow-[0_0_22px_rgba(255,26,26,0.55)] motion-safe:animate-[float-slow_14s_ease-in-out_infinite]"
+            style={{
+              left: `${particle.left}%`,
+              top: `${particle.top}%`,
+              width: `${particle.size}px`,
+              height: `${particle.size}px`,
+              animationDelay: `${particle.delay}s`,
+              animationDuration: `${particle.duration}s`
+            }}
+          />
+        ))}
+      </div>
+      <div
+        aria-hidden="true"
+        className="pointer-events-none fixed left-[var(--cursor-x)] top-[var(--cursor-y)] z-[100] hidden h-10 w-10 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/15 bg-white/5 shadow-[0_0_40px_rgba(255,26,26,0.22)] transition-[opacity,transform] duration-200 md:block"
+        style={{ opacity: "var(--cursor-opacity, 0)" }}
+      />
+
+      <AnimatePresence>
+        {!booted ? (
+          <motion.div
+            key="boot"
+            className="fixed inset-0 z-[120] flex items-center justify-center bg-[#050505]"
+            initial={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.35 }}
+          >
+            <div className="relative flex flex-col items-center gap-6 px-6 text-center">
+              <div className="relative grid h-24 w-24 place-items-center rounded-[2rem] border border-white/10 bg-white/[0.04] shadow-[0_0_80px_rgba(255,26,26,0.18)]">
+                <div className="absolute inset-2 rounded-[1.5rem] border border-white/10" />
+                <div className="text-3xl font-black tracking-[-0.08em] text-white">F</div>
+              </div>
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.42em] text-white/45">Fauzi Eventos</div>
+                <div className="mt-3 text-2xl font-black tracking-[-0.05em] sm:text-4xl">Experiência premium carregando</div>
+                <p className="mt-3 max-w-md text-sm leading-6 text-white/55">Galeria privada, checkout e painel administrativo em uma interface futurista e fluida.</p>
+              </div>
+              <div className="h-1.5 w-52 overflow-hidden rounded-full bg-white/10">
+                <motion.div
+                  className="h-full w-1/2 rounded-full bg-gradient-to-r from-white via-[#ff1a1a] to-white"
+                  animate={{ x: ["-35%", "135%"] }}
+                  transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }}
+                />
+              </div>
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+
+      <div className={`relative z-10 transition-opacity duration-500 ${booted ? "opacity-100" : "opacity-0"}`}>
       <header className="sticky top-0 z-50 border-b border-white/10 bg-black/75 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 lg:px-6">
           <button
@@ -742,7 +869,7 @@ function App() {
             }}
             className="flex items-center gap-3 text-left"
           >
-            <div className="grid h-11 w-11 place-items-center rounded-2xl border border-red-500/30 bg-red-500/10 text-sm font-black text-red-100">
+            <div className="grid h-11 w-11 place-items-center rounded-2xl border border-white/10 bg-white/5 text-sm font-black text-white">
               F
             </div>
             <div>
@@ -755,7 +882,7 @@ function App() {
             <button
               type="button"
               onClick={openGalleryAccess}
-              className="rounded-full border border-white/10 bg-white/[0.06] px-4 py-2 text-sm font-semibold text-white/85 transition hover:border-red-500/40 hover:bg-red-500/10"
+              className="rounded-full border border-white/10 bg-white/[0.06] px-4 py-2 text-sm font-semibold text-white/85 transition hover:border-white/25 hover:bg-white/10"
             >
               Acessar galeria
             </button>
@@ -763,7 +890,7 @@ function App() {
               <button
                 type="button"
                 onClick={openAdminPage}
-                className="rounded-full border border-white/10 bg-white/[0.06] px-4 py-2 text-sm font-semibold text-white/85 transition hover:border-red-500/40 hover:bg-red-500/10"
+                className="rounded-full border border-white/10 bg-white/[0.06] px-4 py-2 text-sm font-semibold text-white/85 transition hover:border-white/25 hover:bg-white/10"
               >
                 Painel admin
               </button>
@@ -790,7 +917,7 @@ function App() {
                   setUser(null);
                   setPage("home");
                 }}
-                className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-white/80 transition hover:bg-red-500/10 hover:text-red-100"
+                className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-white/80 transition hover:bg-white/10 hover:text-white"
                 aria-label="Sair"
               >
                 <LogOut className="h-4 w-4" />
@@ -829,7 +956,7 @@ function App() {
                 <button
                   type="button"
                   onClick={openGalleryAccess}
-                  className="rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-left text-sm font-semibold text-white/90"
+              className="rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-left text-sm font-semibold text-white/90"
                 >
                   Acessar galeria
                 </button>
@@ -859,16 +986,27 @@ function App() {
 
       <main>
         {page === "home" ? (
-          <div className="space-y-6">
+          <PremiumHome
+            services={services}
+            isAdmin={isAdmin}
+            openGalleryAccess={openGalleryAccess}
+            openAuthModal={openAuthModal}
+            openServicePurchase={openServicePurchase}
+            openAdminPage={openAdminPage}
+          />
+        ) : null}
+
+        {false ? (
+          <div className="hidden space-y-6">
             <section className="mx-auto max-w-7xl px-4 pb-20 pt-10 lg:px-6 lg:pt-16">
               <div className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
                 <motion.div
                   initial={{ opacity: 0, y: 12 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.2 }}
-                  className="rounded-[1.75rem] border border-white/10 bg-gradient-to-br from-red-950/80 via-black to-black p-6 shadow-2xl shadow-black/30 lg:p-8"
+                  className="rounded-[1.75rem] border border-white/10 bg-gradient-to-br from-black via-zinc-950 to-black p-6 shadow-2xl shadow-black/30 lg:p-8"
                 >
-                  <div className="inline-flex items-center gap-2 rounded-full border border-red-400/20 bg-red-500/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.22em] text-red-100">
+                  <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.22em] text-white/85">
                     <Sparkles className="h-3.5 w-3.5" />
                     Experiência imersiva
                   </div>
@@ -890,7 +1028,7 @@ function App() {
                     <button
                       type="button"
                       onClick={() => openAuthModal("login")}
-                      className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-5 py-3 text-sm font-semibold text-white/90 transition hover:border-red-500/40 hover:bg-red-500/10"
+              className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-5 py-3 text-sm font-semibold text-white/90 transition hover:border-white/25 hover:bg-white/10"
                     >
                       Fazer login
                       <ChevronRight className="h-4 w-4" />
@@ -921,7 +1059,7 @@ function App() {
                         "Seleciona fotos, paga e só então baixa."
                       ].map((line, index) => (
                         <div key={line} className="flex items-start gap-3 rounded-2xl border border-white/10 bg-black/30 p-4">
-                          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-red-500/15 text-xs font-black text-red-100">
+                          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.08] text-xs font-black text-white/90">
                             0{index + 1}
                           </div>
                           <p className="text-sm leading-6 text-white/72">{line}</p>
@@ -936,7 +1074,7 @@ function App() {
                       <button
                         type="button"
                         onClick={openGalleryAccess}
-                        className="inline-flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-semibold text-white/90 transition hover:border-red-500/40 hover:bg-red-500/10"
+                        className="inline-flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-semibold text-white/90 transition hover:border-white/25 hover:bg-white/10"
                       >
                         <span className="flex items-center gap-2">
                           <LockKeyhole className="h-4 w-4" />
@@ -948,7 +1086,7 @@ function App() {
                         <button
                           type="button"
                           onClick={openAdminPage}
-                          className="inline-flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-semibold text-white/90 transition hover:border-red-500/40 hover:bg-red-500/10"
+                          className="inline-flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-semibold text-white/90 transition hover:border-white/25 hover:bg-white/10"
                         >
                           <span className="flex items-center gap-2">
                             <ShieldCheck className="h-4 w-4" />
@@ -1253,7 +1391,7 @@ function App() {
                           onClick={() => setPaymentProvider(provider)}
                           className={`rounded-2xl border px-3 py-3 text-sm font-semibold capitalize transition ${
                             paymentProvider === provider
-                              ? "border-red-400 bg-red-500/15 text-red-50"
+                              ? "border-white/25 bg-white text-black"
                               : "border-white/10 bg-black/30 text-white/75 hover:bg-white/[0.08]"
                           }`}
                         >
@@ -1320,10 +1458,10 @@ function App() {
                   if (galleryError) setGalleryError("");
                 }}
                 placeholder="Ex.: TESTE1"
-                className="mt-2 w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm outline-none placeholder:text-white/30 focus:border-red-400/50"
+                className="mt-2 w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm outline-none placeholder:text-white/30 focus:border-white/25"
               />
               {galleryError ? (
-                <div className="mt-3 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-50">
+                <div className="mt-3 rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm text-white/85">
                   {galleryError}
                 </div>
               ) : null}
@@ -1386,7 +1524,7 @@ function App() {
                         key={photo._id}
                         whileHover={{ y: -3 }}
                         transition={{ duration: 0.14 }}
-                        className={`overflow-hidden rounded-[1.5rem] border bg-white/[0.05] ${selected ? "border-red-400/50" : "border-white/10"}`}
+                        className={`overflow-hidden rounded-[1.5rem] border bg-white/[0.05] ${selected ? "border-white/25" : "border-white/10"}`}
                       >
                         <div className="relative h-72">
                           <img src={photo.url} alt={photo.evento || "Foto"} className="h-full w-full object-cover" />
@@ -1479,7 +1617,7 @@ function App() {
                           onClick={() => setPaymentProvider(provider)}
                           className={`rounded-2xl border px-3 py-3 text-sm font-semibold capitalize transition ${
                             paymentProvider === provider
-                              ? "border-red-400 bg-red-500/15 text-red-50"
+                              ? "border-white/25 bg-white text-black"
                               : "border-white/10 bg-black/30 text-white/75 hover:bg-white/[0.08]"
                           }`}
                         >
@@ -1554,6 +1692,7 @@ function App() {
           />
         ) : null}
       </AnimatePresence>
+    </div>
     </div>
   );
 }
