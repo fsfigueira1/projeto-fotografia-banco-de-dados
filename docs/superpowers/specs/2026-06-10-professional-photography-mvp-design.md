@@ -232,7 +232,11 @@ Primary route groups:
 
 ### Public Home
 
-- Premium editorial dark design using black, deep red, white, and neutral tones.
+- Premium editorial design centered on Jungle (`#1A4731`) and Cream Soda (`#FFF4CC`).
+- Jungle and darker derived greens define backgrounds, panels, overlays, and structural surfaces.
+- Cream Soda and lower-opacity derived tones define primary text, icons, borders, and conversion actions.
+- Error, warning, and success states retain restrained semantic colors for accessibility.
+- Legacy red accents are removed from the product identity.
 - Strong hero, benefits, how-it-works, photographer-oriented section, services, and conversion CTA.
 - Restrained reveal and hover animation.
 - GSAP/Lenis effects are limited to sections where they improve the experience and disabled for reduced motion.
