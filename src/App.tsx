@@ -233,7 +233,7 @@ function apiUrl(path: string) {
   return getApiUrl(path);
 }
 
-function authHeaders(user: User | null) {
+function authHeaders(user: User | null): Record<string, string> {
   return user?.token ? { Authorization: `Bearer ${user.token}` } : {};
 }
 
@@ -350,7 +350,7 @@ function App() {
     };
   }, []);
 
-  const isAdmin = user?.email === "123" && user?.role === "admin";
+  const isAdmin = user?.role === "admin";
   const ownedPhotoIds = useMemo(() => {
     const owned = new Set<string>();
     for (const purchase of gallerySession?.purchases || []) {
@@ -391,6 +391,7 @@ function App() {
     setGalleryLoading(true);
     try {
       const response = await fetch(apiUrl("/galerias/me"), {
+        credentials: "include",
         headers: { "x-gallery-token": token }
       });
       if (!response.ok) {
@@ -414,11 +415,12 @@ function App() {
   }
 
   async function refreshAdminOverview() {
-    if (!user?.token) return;
+    if (!user || !isAdmin) return;
     setAdminLoading(true);
     setAdminError("");
     try {
       const response = await fetch(apiUrl("/galerias/admin/overview"), {
+        credentials: "include",
         headers: {
           ...authHeaders(user)
         }
@@ -474,6 +476,7 @@ function App() {
       const response = await fetch(apiUrl("/galerias/acessar"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ code })
       });
 
@@ -530,6 +533,7 @@ function App() {
 
     const response = await fetch(apiUrl("/pagamento/criar-checkout"), {
       method: "POST",
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
         ...authHeaders(user)
@@ -578,7 +582,7 @@ function App() {
   }
 
   async function saveGallery() {
-    if (!user?.token || !isAdmin) return;
+    if (!user || !isAdmin) return;
     const payload = {
       ...galleryForm,
       photoIds: editingGalleryId
@@ -595,6 +599,7 @@ function App() {
 
     const response = await fetch(url, {
       method,
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
         ...authHeaders(user)
@@ -622,7 +627,7 @@ function App() {
   }
 
   async function saveCode() {
-    if (!user?.token || !isAdmin) return;
+    if (!user || !isAdmin) return;
     const url = editingCodeId
       ? apiUrl(`/galerias/admin/codes/${editingCodeId}`)
       : apiUrl("/galerias/admin/codes");
@@ -636,6 +641,7 @@ function App() {
 
     const response = await fetch(url, {
       method,
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
         ...authHeaders(user)
@@ -663,7 +669,7 @@ function App() {
 
   async function uploadPhoto(event: FormEvent) {
     event.preventDefault();
-    if (!user?.token || !isAdmin) return;
+    if (!user || !isAdmin) return;
 
     const input = (event.target as HTMLFormElement).elements.namedItem("foto") as HTMLInputElement | null;
     const file = input?.files?.[0];
@@ -680,6 +686,7 @@ function App() {
 
     const response = await fetch(apiUrl("/upload"), {
       method: "POST",
+      credentials: "include",
       headers: {
         ...authHeaders(user)
       },
@@ -695,9 +702,10 @@ function App() {
   }
 
   async function updateGalleryStatus(id: string, status: Gallery["status"]) {
-    if (!user?.token || !isAdmin) return;
+    if (!user || !isAdmin) return;
     await fetch(apiUrl(`/galerias/admin/galleries/${id}`), {
       method: "PATCH",
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
         ...authHeaders(user)
@@ -708,27 +716,30 @@ function App() {
   }
 
   async function deleteGallery(id: string) {
-    if (!user?.token || !isAdmin) return;
+    if (!user || !isAdmin) return;
     await fetch(apiUrl(`/galerias/admin/galleries/${id}`), {
       method: "DELETE",
+      credentials: "include",
       headers: authHeaders(user)
     });
     await refreshAdminOverview();
   }
 
   async function deleteCode(id: string) {
-    if (!user?.token || !isAdmin) return;
+    if (!user || !isAdmin) return;
     await fetch(apiUrl(`/galerias/admin/codes/${id}`), {
       method: "DELETE",
+      credentials: "include",
       headers: authHeaders(user)
     });
     await refreshAdminOverview();
   }
 
   async function toggleCodeActive(code: AccessCode) {
-    if (!user?.token || !isAdmin) return;
+    if (!user || !isAdmin) return;
     await fetch(apiUrl(`/galerias/admin/codes/${code._id}`), {
       method: "PATCH",
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
         ...authHeaders(user)
@@ -1684,7 +1695,7 @@ function App() {
               };
               setUser(normalized);
               writeStoredUser(normalized);
-              if (normalized.email === "123" && normalized.role === "admin") {
+              if (normalized.role === "admin") {
                 setPage("admin");
               }
               setAuthOpen(false);

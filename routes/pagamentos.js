@@ -2,12 +2,25 @@ const express = require("express");
 const router = express.Router();
 
 const Stripe = require("stripe");
-const stripe = Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_51TeznFKdPtDysEm0UfBNACV0Qrit2zrLNP7KaGQiXc9dQtylueUtwJUeKpkWmbHMVnNjxKlUxjKozM8m2UIbdfdz00xkxL5nDl");
+const { getEnv } = require("../server/config/env");
 
 const Compra = require("../models/Compra");
 const Foto = require("../models/Foto");
-const Gallery = require("../models/Gallery");
-const AccessCode = require("../models/AccessCode");
+
+let stripe = null;
+
+function getStripe() {
+  if (stripe) return stripe;
+  const key = getEnv().STRIPE_SECRET_KEY;
+  if (!key) {
+    const error = new Error("Stripe não está configurado.");
+    error.status = 503;
+    error.code = "STRIPE_NOT_CONFIGURED";
+    throw error;
+  }
+  stripe = Stripe(key);
+  return stripe;
+}
 
 const SERVICOS = {
   casamento: { nome: "Pacote Casamento", preco: 1800 },
@@ -15,37 +28,6 @@ const SERVICOS = {
   formatura: { nome: "Pacote Formatura", preco: 1500 },
   corporativo: { nome: "Pacote Corporativo", preco: 900 }
 };
-
-async function marcarCompraComoPaga(sessionId) {
-  const session = await stripe.checkout.sessions.retrieve(sessionId);
-  if (session.payment_status !== "paid") {
-    throw new Error("Pagamento ainda nao confirmado.");
-  }
-
-  const purchase = await Compra.findOneAndUpdate(
-    { sessionId },
-    {
-      pago: true,
-      status: "paid",
-      userId: session.metadata?.userId || undefined,
-      fotoId: session.metadata?.fotoId || undefined,
-      photoIds: session.metadata?.photoIds ? session.metadata.photoIds.split(",") : undefined,
-      serviceId: session.metadata?.serviceId || undefined,
-      galleryId: session.metadata?.galleryId || undefined,
-      accessCodeId: session.metadata?.accessCodeId || undefined
-    },
-    { new: true }
-  );
-
-  if (purchase?.accessCodeId) {
-    await AccessCode.findByIdAndUpdate(purchase.accessCodeId, {
-      active: true,
-      lastUsedAt: new Date()
-    });
-  }
-
-  return session;
-}
 
 router.post("/criar-checkout", async (req, res) => {
   try {
@@ -125,13 +107,14 @@ router.post("/criar-checkout", async (req, res) => {
       };
     }
 
-    const session = await stripe.checkout.sessions.create({
+    const frontendUrl = getEnv().FRONTEND_URLS[0];
+    const session = await getStripe().checkout.sessions.create({
       payment_method_types: paymentMethodTypes,
       mode: "payment",
       metadata,
       line_items: [lineItem],
-      success_url: "http://localhost:3000/sucesso.html?session_id={CHECKOUT_SESSION_ID}",
-      cancel_url: "http://localhost:3000/cancelado.html?session_id={CHECKOUT_SESSION_ID}"
+      success_url: `${frontendUrl}/sucesso.html?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${frontendUrl}/cancelado.html?session_id={CHECKOUT_SESSION_ID}`
     });
 
     await Compra.create({
@@ -154,29 +137,6 @@ router.post("/criar-checkout", async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Nao foi possivel iniciar o checkout." });
-  }
-});
-
-router.get("/confirmar", async (req, res) => {
-  try {
-    const { session_id: sessionId } = req.query;
-    if (!sessionId) {
-      return res.status(400).json({ error: "session_id e obrigatorio." });
-    }
-
-    const session = await marcarCompraComoPaga(sessionId);
-    res.json({
-      ok: true,
-      sessionId,
-      userId: session.metadata?.userId || null,
-      fotoId: session.metadata?.fotoId || null,
-      photoIds: session.metadata?.photoIds || null,
-      serviceId: session.metadata?.serviceId || null,
-      galleryId: session.metadata?.galleryId || null
-    });
-  } catch (error) {
-    console.error(error);
-    res.status(400).json({ error: error.message || "Nao foi possivel confirmar o pagamento." });
   }
 });
 

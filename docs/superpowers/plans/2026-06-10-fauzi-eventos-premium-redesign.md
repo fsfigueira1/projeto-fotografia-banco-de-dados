@@ -163,7 +163,7 @@ git commit -m "feat: refine premium motion surfaces"
 
 ```tsx
 // Verify:
-// - login 123 / 123456 returns role admin
+// - authenticated administrators receive role admin from the backend
 // - admin page opens after success
 // - no public user sees admin controls
 ```

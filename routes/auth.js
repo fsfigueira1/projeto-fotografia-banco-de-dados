@@ -1,82 +1,141 @@
 const express = require("express");
-const router = express.Router();
 const bcrypt = require("bcrypt");
+const { z } = require("zod");
 
-const User = require("../models/User");
-const { signUserToken } = require("../server/security");
+const UserModel = require("../models/User");
+const { getEnv } = require("../server/config/env");
+const { sendError, sendSuccess } = require("../server/http/response");
+const { createAuthMiddleware, SESSION_COOKIE } = require("../server/middleware/auth");
+const { validate } = require("../server/middleware/validate");
+const {
+  getClearCookieOptions,
+  getSessionCookieOptions,
+  signUserToken
+} = require("../server/security");
 
-const TEST_LOGIN_EMAIL = "123";
-const TEST_LOGIN_PASSWORD = "123456";
-function sanitizeUser(user, token = null) {
-  if (!user) return null;
-  const { _id, nome, email, role } = user;
-  return { _id, nome, email, role, token };
+const credentialsSchema = z.object({
+  email: z.string().trim().toLowerCase().email("Informe um email válido."),
+  senha: z.string().min(8, "A senha deve ter pelo menos 8 caracteres.").max(128)
+});
+
+const registerSchema = credentialsSchema.extend({
+  nome: z.string().trim().min(2, "Informe seu nome.").max(120)
+});
+
+function sanitizeUser(user) {
+  return {
+    _id: String(user._id),
+    nome: user.nome,
+    email: user.email,
+    role: user.role || "client"
+  };
 }
 
-router.post("/register", async (req, res) => {
-  try {
-    const { nome, email, senha } = req.body;
+async function resolvePasswordUser(User, email) {
+  const query = User.findOne({ email });
+  if (query && typeof query.select === "function") {
+    return query.select("+senha");
+  }
+  return query;
+}
 
-    if (!nome || !email || !senha) {
-      return res.status(400).send("Nome, email e senha são obrigatórios");
+function createAuthRouter({ User = UserModel, env = null } = {}) {
+  const router = express.Router();
+  const auth = createAuthMiddleware({ User, env });
+  const runtimeEnv = () => env || getEnv();
+
+  router.post(
+    "/register",
+    validate({ body: registerSchema }),
+    async (req, res, next) => {
+      try {
+        const existing = await User.findOne({ email: req.body.email });
+        if (existing) {
+          return sendError(res, {
+            status: 409,
+            message: "Este email já está cadastrado.",
+            error: "ACCOUNT_EXISTS"
+          });
+        }
+
+        const senha = await bcrypt.hash(req.body.senha, 12);
+        const user = await User.create({
+          nome: req.body.nome,
+          email: req.body.email,
+          senha,
+          role: "client"
+        });
+
+        return sendSuccess(res, {
+          status: 201,
+          data: { user: sanitizeUser(user) },
+          message: "Conta criada com sucesso."
+        });
+      } catch (error) {
+        if (error?.code === 11000) {
+          return sendError(res, {
+            status: 409,
+            message: "Este email já está cadastrado.",
+            error: "ACCOUNT_EXISTS"
+          });
+        }
+        return next(error);
+      }
     }
+  );
 
-    if (senha.length < 6) {
-      return res.status(400).send("A senha deve ter pelo menos 6 caracteres");
+  router.post(
+    "/login",
+    validate({ body: credentialsSchema }),
+    async (req, res, next) => {
+      try {
+        const user = await resolvePasswordUser(User, req.body.email);
+        const matches = user
+          ? await bcrypt.compare(req.body.senha, user.senha)
+          : false;
+
+        if (!user || !matches) {
+          return sendError(res, {
+            status: 401,
+            message: "Email ou senha inválidos.",
+            error: "INVALID_CREDENTIALS"
+          });
+        }
+
+        const token = signUserToken(user, runtimeEnv());
+        res.cookie(
+          SESSION_COOKIE,
+          token,
+          getSessionCookieOptions(runtimeEnv())
+        );
+
+        return sendSuccess(res, {
+          data: { user: sanitizeUser(user) },
+          message: "Login realizado com sucesso."
+        });
+      } catch (error) {
+        return next(error);
+      }
     }
+  );
 
-    const hash = await bcrypt.hash(senha, 10);
+  router.get("/me", auth.requireAuth, (req, res) =>
+    sendSuccess(res, {
+      data: { user: sanitizeUser(req.user) },
+      message: "Sessão autenticada."
+    })
+  );
 
-    const user = await User.create({
-      nome: nome.trim(),
-      email: email.trim().toLowerCase(),
-      senha: hash,
-      role: "client"
+  router.post("/logout", (_req, res) => {
+    res.clearCookie(SESSION_COOKIE, getClearCookieOptions(runtimeEnv()));
+    return sendSuccess(res, {
+      message: "Sessão encerrada."
     });
+  });
 
-    const token = signUserToken(user);
-    return res.json(sanitizeUser(user, token));
-  } catch (err) {
-    if (err && err.code === 11000) {
-      return res.status(409).send("Este email já está cadastrado");
-    }
+  return router;
+}
 
-    console.error(err);
-    return res.status(500).send("Erro ao cadastrar usuário");
-  }
-});
-
-router.post("/login", async (req, res) => {
-  try {
-    const { email, senha } = req.body;
-
-    if (!email || !senha) {
-      return res.status(400).send("Email e senha são obrigatórios");
-    }
-
-    const normalizedEmail = email.trim().toLowerCase();
-    if (normalizedEmail === TEST_LOGIN_EMAIL && senha === TEST_LOGIN_PASSWORD) {
-      const user = {
-        _id: "test-login",
-        nome: "Login Teste",
-        email: TEST_LOGIN_EMAIL,
-        role: "admin"
-      };
-      return res.json(sanitizeUser(user, signUserToken(user)));
-    }
-
-    const user = await User.findOne({ email: normalizedEmail });
-    if (!user) return res.status(400).send("Usuário não existe");
-
-    const match = await bcrypt.compare(senha, user.senha);
-    if (!match) return res.status(400).send("Senha errada");
-
-    const token = signUserToken(user);
-    return res.json(sanitizeUser(user, token));
-  } catch (err) {
-    console.error(err);
-    return res.status(500).send("Erro ao fazer login");
-  }
-});
-
-module.exports = router;
+module.exports = createAuthRouter();
+module.exports.createAuthRouter = createAuthRouter;
+module.exports.sanitizeUser = sanitizeUser;

@@ -67,39 +67,13 @@
     <section class="status-card">
       <div class="status-icon" aria-hidden="true">✓</div>
       <h1 class="status-title">Pagamento aprovado</h1>
-      <p class="status-sub">Sua compra foi confirmada e a foto já pode aparecer vinculada à sua conta na galeria.</p>
+      <p class="status-sub">O Stripe recebeu o pagamento. A liberação das fotos será concluída pelo webhook seguro em instantes.</p>
       <div class="status-actions">
-        <a class="btn btn-primary" href="index.html#galeria">Voltar para a galeria</a>
-        <a class="btn btn-outline" href="index.html#como-funciona">Ver próximos passos</a>
+        <a class="btn btn-primary" href="app.html">Voltar para a galeria</a>
+        <a class="btn btn-outline" href="app.html">Acompanhar liberação</a>
       </div>
-      <div class="status-meta" id="paymentMeta">Confirmando pagamento...</div>
+      <div class="status-meta">A confirmação não depende desta página. Você pode fechá-la com segurança.</div>
     </section>
   </main>
-
-  <script>
-    (async () => {
-      const meta = document.getElementById("paymentMeta");
-      const sessionId = new URLSearchParams(window.location.search).get("session_id");
-      const apiBase = window.location.origin.includes("localhost:3000") ? "" : "http://localhost:3000";
-
-      if (!sessionId) {
-        meta.textContent = "Nenhum session_id foi informado. A compra pode ainda estar pendente.";
-        return;
-      }
-
-      try {
-        const response = await fetch(`${apiBase}/pagamento/confirmar?session_id=${encodeURIComponent(sessionId)}`);
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data?.error || "Nao foi possivel confirmar o pagamento.");
-        }
-
-        meta.textContent = `Compra confirmada. Session: ${data.sessionId}`;
-      } catch (error) {
-        meta.textContent = error.message || "Nao foi possivel confirmar o pagamento.";
-      }
-    })();
-  </script>
 </body>
 </html>

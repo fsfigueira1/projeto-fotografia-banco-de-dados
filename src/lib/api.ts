@@ -1,11 +1,6 @@
-const LOCAL_BACKEND_ORIGIN = "http://localhost:3000";
+const API_BASE_URL = String(import.meta.env.VITE_API_URL || "/api").replace(/\/+$/, "");
 
 export function getApiUrl(path: string) {
-  if (typeof window === "undefined") return `${LOCAL_BACKEND_ORIGIN}${path}`;
-
-  if (window.location.origin === LOCAL_BACKEND_ORIGIN) {
-    return path;
-  }
-
-  return `${LOCAL_BACKEND_ORIGIN}${path}`;
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${API_BASE_URL}${normalizedPath}`;
 }

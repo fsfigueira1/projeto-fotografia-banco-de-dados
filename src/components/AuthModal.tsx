@@ -28,8 +28,6 @@ export function AuthModal({
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState(false);
-  const normalizedEmail = email.trim().toLowerCase();
-  const isTestLogin = mode === "login" && normalizedEmail === "123" && senha === "123456";
 
   useEffect(() => {
     if (!open) return;
@@ -55,6 +53,7 @@ export function AuthModal({
       const response = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify(body)
       });
 
@@ -67,17 +66,6 @@ export function AuthModal({
       }
 
       if (!response.ok) {
-        if (isTestLogin) {
-          onSuccess({
-            _id: "test-login",
-            nome: "Login Teste",
-            email: "123",
-            role: "admin",
-            token: null
-          });
-          onClose();
-          return;
-        }
         throw new Error(typeof data === "string" ? data : data?.error || "Falha na autenticação.");
       }
 
@@ -88,21 +76,10 @@ export function AuthModal({
         return;
       }
 
-      onSuccess(data);
+      onSuccess(data?.data?.user || data);
       setMessage("Login realizado.");
       onClose();
     } catch (err) {
-      if (isTestLogin) {
-        onSuccess({
-          _id: "test-login",
-          nome: "Login Teste",
-          email: "123",
-          role: "admin",
-          token: null
-        });
-        onClose();
-        return;
-      }
       setError(true);
       setMessage(err instanceof Error ? err.message : "Falha na autenticação.");
     } finally {
@@ -188,13 +165,13 @@ export function AuthModal({
               <span className="mb-2 block text-sm text-white/70">Email</span>
               <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
                 <Mail className="h-4 w-4 text-white/45" />
-                <input
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="123"
-                  type="text"
-                  className="w-full bg-transparent outline-none placeholder:text-white/35"
-                  autoComplete="off"
+                  <input
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="voce@exemplo.com"
+                    type="email"
+                    className="w-full bg-transparent outline-none placeholder:text-white/35"
+                    autoComplete="email"
                   required
                 />
               </div>

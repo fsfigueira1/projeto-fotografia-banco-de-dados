@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, type Transition } from "framer-motion";
 import { useOnClickOutside } from "usehooks-ts";
 import { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -46,7 +46,12 @@ const spanVariants = {
   exit: { width: 0, opacity: 0 }
 };
 
-const transition = { delay: 0.1, type: "spring", bounce: 0, duration: 0.6 };
+const transition: Transition = {
+  delay: 0.1,
+  type: "spring",
+  bounce: 0,
+  duration: 0.6
+};
 
 export function ExpandableTabs({
   tabs,
@@ -57,7 +62,7 @@ export function ExpandableTabs({
   const [selected, setSelected] = React.useState<number | null>(0);
   const outsideClickRef = React.useRef<HTMLDivElement | null>(null);
 
-  useOnClickOutside(outsideClickRef, () => {
+  useOnClickOutside(outsideClickRef as React.RefObject<HTMLElement>, () => {
     onChange?.(selected);
   });
 

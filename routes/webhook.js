@@ -2,10 +2,25 @@ const express = require("express");
 const router = express.Router();
 
 const Stripe = require("stripe");
-const stripe = Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_51TeznFKdPtDysEm0UfBNACV0Qrit2zrLNP7KaGQiXc9dQtylueUtwJUeKpkWmbHMVnNjxKlUxjKozM8m2UIbdfdz00xkxL5nDl");
+const { getEnv } = require("../server/config/env");
 
 const Compra = require("../models/Compra");
 const AccessCode = require("../models/AccessCode");
+
+let stripe = null;
+
+function getStripe() {
+  if (stripe) return stripe;
+  const key = getEnv().STRIPE_SECRET_KEY;
+  if (!key) {
+    const error = new Error("Stripe não está configurado.");
+    error.status = 503;
+    error.code = "STRIPE_NOT_CONFIGURED";
+    throw error;
+  }
+  stripe = Stripe(key);
+  return stripe;
+}
 
 router.post("/", express.json(), async (req, res) => {
   try {
@@ -13,7 +28,7 @@ router.post("/", express.json(), async (req, res) => {
 
     if (event?.type === "checkout.session.completed") {
       const session = event.data.object;
-      const fullSession = await stripe.checkout.sessions.retrieve(session.id);
+      const fullSession = await getStripe().checkout.sessions.retrieve(session.id);
 
       const purchase = await Compra.findOneAndUpdate(
         { sessionId: session.id },

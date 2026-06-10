@@ -1,95 +1,127 @@
 const jwt = require("jsonwebtoken");
+const { getEnv } = require("./config/env");
+const { sendError } = require("./http/response");
 
-const JWT_SECRET = process.env.JWT_SECRET || "dev-fauzi-secret";
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
-const GALLERY_SESSION_EXPIRES_IN = process.env.GALLERY_SESSION_EXPIRES_IN || "8h";
+function resolveEnv(env) {
+  return env || getEnv();
+}
 
-function signUserToken(user) {
+function signUserToken(user, env) {
+  const runtime = resolveEnv(env);
   return jwt.sign(
     {
       sub: String(user._id),
-      email: user.email,
-      nome: user.nome,
       role: user.role || "client",
       kind: "user"
     },
-    JWT_SECRET,
-    { expiresIn: JWT_EXPIRES_IN }
+    runtime.JWT_SECRET,
+    { expiresIn: runtime.JWT_EXPIRES_IN }
   );
 }
 
-function signGalleryToken(payload) {
+function signGalleryToken(payload, env) {
+  const runtime = resolveEnv(env);
   return jwt.sign(
     {
       ...payload,
       kind: "gallery"
     },
-    JWT_SECRET,
-    { expiresIn: GALLERY_SESSION_EXPIRES_IN }
+    runtime.JWT_SECRET,
+    { expiresIn: runtime.GALLERY_SESSION_EXPIRES_IN }
   );
 }
 
-function verifyToken(token) {
-  return jwt.verify(token, JWT_SECRET);
+function verifyToken(token, env) {
+  return jwt.verify(token, resolveEnv(env).JWT_SECRET);
 }
 
-function extractBearer(req) {
-  const header = req.headers.authorization || "";
-  if (!header.startsWith("Bearer ")) return null;
-  return header.slice(7);
+function parseDurationMs(value) {
+  const match = /^(\d+)(s|m|h|d)$/i.exec(String(value || ""));
+  if (!match) return 7 * 24 * 60 * 60 * 1000;
+
+  const amount = Number(match[1]);
+  const multipliers = {
+    s: 1000,
+    m: 60 * 1000,
+    h: 60 * 60 * 1000,
+    d: 24 * 60 * 60 * 1000
+  };
+  return amount * multipliers[match[2].toLowerCase()];
+}
+
+function getSessionCookieOptions(env) {
+  const runtime = resolveEnv(env);
+  const production = runtime.NODE_ENV === "production";
+  return {
+    httpOnly: true,
+    secure: production,
+    sameSite: production ? "none" : "lax",
+    path: "/",
+    maxAge: parseDurationMs(runtime.JWT_EXPIRES_IN),
+    ...(runtime.COOKIE_DOMAIN ? { domain: runtime.COOKIE_DOMAIN } : {})
+  };
+}
+
+function getClearCookieOptions(env) {
+  const { maxAge: _maxAge, ...options } = getSessionCookieOptions(env);
+  return options;
+}
+
+function createGallerySessionMiddleware(env = null) {
+  return function requireGallerySession(req, res, next) {
+    try {
+      const token = req.headers["x-gallery-token"];
+      if (!token) {
+        return sendError(res, {
+          status: 401,
+          message: "Código de acesso da galeria obrigatório.",
+          error: "GALLERY_SESSION_REQUIRED"
+        });
+      }
+
+      const payload = verifyToken(String(token), env);
+      if (payload.kind !== "gallery" || !payload.galleryId) {
+        throw new Error("invalid gallery token");
+      }
+
+      req.gallerySession = payload;
+      return next();
+    } catch {
+      return sendError(res, {
+        status: 401,
+        message: "Sessão da galeria inválida ou expirada.",
+        error: "INVALID_GALLERY_SESSION"
+      });
+    }
+  };
+}
+
+let defaultGalleryMiddleware = null;
+
+function requireGallerySession(req, res, next) {
+  if (!defaultGalleryMiddleware) {
+    defaultGalleryMiddleware = createGallerySessionMiddleware();
+  }
+  return defaultGalleryMiddleware(req, res, next);
 }
 
 function requireAuth(req, res, next) {
-  try {
-    const token = extractBearer(req) || req.headers["x-auth-token"] || req.query.token || null;
-    if (!token) {
-      return res.status(401).json({ error: "Autenticação obrigatória." });
-    }
-
-    const payload = verifyToken(String(token));
-    req.auth = payload;
-    return next();
-  } catch (error) {
-    return res.status(401).json({ error: "Sessão inválida ou expirada." });
-  }
+  return require("./middleware/auth").requireAuth(req, res, next);
 }
 
 function requireAdmin(req, res, next) {
-  if (!req.auth) {
-    return res.status(401).json({ error: "Autenticação obrigatória." });
-  }
-
-  if (req.auth.role !== "admin") {
-    return res.status(403).json({ error: "Acesso restrito ao administrador." });
-  }
-
-  return next();
-}
-
-function requireGallerySession(req, res, next) {
-  try {
-    const token = req.headers["x-gallery-token"] || req.query.access || req.query.token || null;
-    if (!token) {
-      return res.status(401).json({ error: "Senha da galeria obrigatória." });
-    }
-
-    const payload = verifyToken(String(token));
-    if (payload.kind !== "gallery") {
-      return res.status(401).json({ error: "Sessão de galeria inválida." });
-    }
-
-    req.gallerySession = payload;
-    return next();
-  } catch (error) {
-    return res.status(401).json({ error: "Sessão da galeria expirada." });
-  }
+  return require("./middleware/auth").requireAdmin(req, res, next);
 }
 
 module.exports = {
-  signUserToken,
-  signGalleryToken,
-  verifyToken,
-  requireAuth,
+  createGallerySessionMiddleware,
+  getClearCookieOptions,
+  getSessionCookieOptions,
+  parseDurationMs,
   requireAdmin,
-  requireGallerySession
+  requireAuth,
+  requireGallerySession,
+  signGalleryToken,
+  signUserToken,
+  verifyToken
 };
