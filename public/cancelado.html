@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pagamento cancelado - Foto Fauzi Eventos</title>
+  <link rel="stylesheet" href="css/tokens.css" />
+  <link rel="stylesheet" href="css/base.css" />
+  <link rel="stylesheet" href="css/components.css" />
+  <style>
+    .status-page {
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+    .status-card {
+      width: min(560px, 100%);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      background: var(--card);
+      box-shadow: var(--shadow-lg);
+      padding: 28px;
+      text-align: center;
+    }
+    .status-icon {
+      width: 68px;
+      height: 68px;
+      margin: 0 auto 16px;
+      border-radius: 22px;
+      display: grid;
+      place-items: center;
+      background: color-mix(in srgb, var(--muted) 50%, var(--card));
+      border: 1px solid var(--border);
+      font-size: 28px;
+    }
+    .status-title {
+      margin: 0;
+      font-size: clamp(28px, 4vw, 40px);
+      line-height: 1;
+      letter-spacing: -.03em;
+    }
+    .status-sub {
+      margin: 14px 0 0;
+      color: var(--muted-foreground);
+      font-weight: 600;
+      line-height: 1.6;
+    }
+    .status-actions {
+      margin-top: 22px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      justify-content: center;
+    }
+  </style>
+</head>
+<body>
+  <main class="status-page">
+    <section class="status-card">
+      <div class="status-icon" aria-hidden="true">!</div>
+      <h1 class="status-title">Pagamento cancelado</h1>
+      <p class="status-sub">Nenhum problema. Você pode voltar para a galeria, entrar na sua conta e tentar novamente quando quiser.</p>
+      <div class="status-actions">
+        <a class="btn btn-primary" href="index.html#galeria">Voltar para a galeria</a>
+        <a class="btn btn-outline" href="index.html?auth=login">Entrar novamente</a>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

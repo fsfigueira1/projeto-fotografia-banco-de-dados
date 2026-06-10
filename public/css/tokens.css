@@ -1,0 +1,72 @@
+/* ============================================================
+   TOKENS — Foto Fauzi
+   Tema editorial escuro com acentos quentes para foto esportiva.
+   ============================================================ */
+
+:root {
+  /* superfícies */
+  --card: #ffffff;
+  --background: #f4efe8;
+  --popover: #ffffff;
+  --sidebar: #ffffff;
+
+  /* texto / linhas */
+  --foreground: #111111;
+  --muted: #ece4d8;
+  --muted-foreground: #675f55;
+  --border: #dbd1c2;
+  --input: #dbd1c2;
+  --accent: #e9efe9;
+  --accent-foreground: #111111;
+  --ring: #b27a35;
+
+  /* marca */
+  --primary: #111111;
+  --primary-foreground: #ffffff;
+  --secondary: #d9b06f;
+  --secondary-foreground: #20150b;
+
+  /* utilitários */
+  --destructive: #e54d2e;
+  --destructive-foreground: #ffffff;
+  --radius: 0.5rem;
+  --radius-lg: 0.875rem;
+  --radius-md: 0.5rem;
+
+  /* sombras / curva */
+  --shadow-sm: 0 1px 2px rgba(17, 17, 17, .06);
+  --shadow-md: 0 14px 32px rgba(17, 17, 17, .12);
+  --shadow-lg: 0 34px 90px rgba(17, 17, 17, .22);
+  --ease: cubic-bezier(.2, .8, .2, 1);
+
+  /* container */
+  --container: 1180px;
+}
+
+.dark {
+  --card: #191919;
+  --background: #0e0d0c;
+  --popover: #191919;
+  --sidebar: #18181b;
+
+  --foreground: #eeeeee;
+  --muted: #222222;
+  --muted-foreground: #b4b4b4;
+  --border: #201e18;
+  --input: #484848;
+  --accent: #2a2a2a;
+  --accent-foreground: #eeeeee;
+  --ring: #ffe0c2;
+
+  --primary: #ffe0c2;
+  --primary-foreground: #1a120c;
+  --secondary: #393028;
+  --secondary-foreground: #ffe0c2;
+
+  --destructive: #e54d2e;
+  --destructive-foreground: #ffffff;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .4);
+  --shadow-md: 0 14px 36px rgba(0, 0, 0, .55);
+  --shadow-lg: 0 40px 100px rgba(0, 0, 0, .7);
+}

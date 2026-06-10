@@ -1,0 +1,152 @@
+"use client";
+
+import * as motion from "motion/react-client";
+import type { Variants } from "motion/react";
+import type { CSSProperties } from "react";
+import { ChevronRight, Heart, ImageIcon, MapPin, Sparkles } from "lucide-react";
+
+export interface PhotoStackItem {
+  id: string;
+  image: string;
+  title: string;
+  subtitle: string;
+  price?: string;
+  featured?: boolean;
+}
+
+interface ScrollTriggeredProps {
+  items: PhotoStackItem[];
+  onAction?: (id: string) => void;
+}
+
+export function ScrollTriggered({ items, onAction }: ScrollTriggeredProps) {
+  return (
+    <div className="w-full">
+      <div
+        className="relative overflow-hidden rounded-[28px] border border-white/10 bg-[#1b1f27] px-4 py-14 shadow-[0_24px_90px_rgba(0,0,0,0.28)] md:px-8"
+        style={container}
+      >
+        {items.map((item, i) => (
+          <Card key={item.id} i={i} item={item} onAction={onAction} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+interface CardProps {
+  item: PhotoStackItem;
+  i: number;
+  onAction?: (id: string) => void;
+}
+
+function Card({ item, i, onAction }: CardProps) {
+  const background = `linear-gradient(306deg, rgba(255,255,255,0.08), rgba(213,157,99,0.12))`;
+
+  return (
+    <motion.div
+      className={`card-container-${i}`}
+      style={cardContainer}
+      initial={{ x: i % 2 === 0 ? -120 : 120, y: 90, opacity: 0 }}
+      whileInView={{ x: 0, y: 0, opacity: 1 }}
+      viewport={{ amount: 0.7, once: false }}
+      transition={{ type: "spring", bounce: 0.22, duration: 0.8, delay: i * 0.04 }}
+    >
+      <div style={{ ...splash, background }} />
+      <motion.article style={card} variants={cardVariants} className="card glass overflow-hidden">
+        <div className="relative h-full w-full">
+          <img src={item.image} alt={item.title} className="h-full w-full object-cover" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/88 via-black/24 to-transparent" />
+
+          <div className="absolute left-4 top-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/35 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.22em] text-white/80 backdrop-blur-md">
+            {item.featured ? <Sparkles className="h-3.5 w-3.5 text-[#d59d63]" /> : <ImageIcon className="h-3.5 w-3.5 text-[#8dd7c6]" />}
+            {item.featured ? "Destaque" : "Foto"}
+          </div>
+
+          <div className="absolute bottom-0 left-0 right-0 p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="truncate text-2xl font-black tracking-[-0.04em] text-white">{item.title}</h3>
+                <div className="mt-2 flex items-center gap-2 text-sm text-white/72">
+                  <MapPin className="h-4 w-4 text-white/55" />
+                  <span className="truncate">{item.subtitle}</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => onAction?.(item.id)}
+                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/12 bg-white px-0 text-black transition hover:scale-[1.02]"
+                aria-label={`Comprar ${item.title}`}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mt-4 flex items-center justify-between">
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/35 px-3 py-1 text-xs font-semibold text-white/80 backdrop-blur-md">
+                <Heart className="h-3.5 w-3.5 text-[#d59d63]" />
+                {item.price || "Consultar valor"}
+              </div>
+              <div className="text-xs font-semibold uppercase tracking-[0.22em] text-white/45">
+                Fauzi Eventos
+              </div>
+            </div>
+          </div>
+        </div>
+      </motion.article>
+    </motion.div>
+  );
+}
+
+const cardVariants: Variants = {
+  offscreen: {
+    y: 220,
+    scale: 0.92,
+    rotate: -7,
+    opacity: 0
+  },
+  onscreen: {
+    y: 0,
+    scale: 1,
+    rotate: 0,
+    opacity: 1,
+    transition: {
+      type: "spring",
+      bounce: 0.22,
+      duration: 0.75
+    }
+  }
+};
+
+const container: CSSProperties = {
+  margin: "0 auto",
+  maxWidth: 1240,
+  paddingBottom: 28,
+  width: "100%"
+};
+
+const cardContainer: CSSProperties = {
+  overflow: "hidden",
+  display: "flex",
+  justifyContent: "center",
+  alignItems: "center",
+  position: "relative",
+  paddingTop: 14,
+  marginBottom: -118
+};
+
+const card: CSSProperties = {
+  width: 320,
+  height: 460,
+  borderRadius: 20,
+  background: "#11131a",
+  boxShadow:
+    "0 0 1px rgba(0,0,0,0.08), 0 0 2px rgba(0,0,0,0.08), 0 0 4px rgba(0,0,0,0.08), 0 0 8px rgba(0,0,0,0.08), 0 0 16px rgba(0,0,0,0.08)",
+  transformOrigin: "10% 60%"
+};
+
+const splash: CSSProperties = {
+  position: "absolute",
+  inset: 0,
+  clipPath: `path("M 0 303.5 C 0 292.454 8.995 285.101 20 283.5 L 460 219.5 C 470.085 218.033 480 228.454 480 239.5 L 500 430 C 500 441.046 491.046 450 480 450 L 20 450 C 8.954 450 0 441.046 0 430 Z")`
+};

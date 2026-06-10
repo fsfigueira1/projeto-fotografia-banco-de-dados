@@ -1,0 +1,43 @@
+{
+  "name": "projeto-fotografia-banco-de-dados",
+  "version": "1.0.0",
+  "description": "",
+  "main": "script.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "vite build",
+    "dev": "vite",
+    "start": "npm run build && node server/server.js",
+    "seed:eventos": "node scripts/seed-fauzi-eventos.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "framer-motion": "^12.40.0",
+    "jsonwebtoken": "^9.0.3",
+    "lucide-react": "^1.17.0",
+    "mongoose": "^9.6.3",
+    "motion": "^12.40.0",
+    "multer": "^2.1.1",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "stripe": "^22.2.0",
+    "usehooks-ts": "^3.1.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.2",
+    "autoprefixer": "^10.5.0",
+    "postcss": "^8.5.15",
+    "tailwindcss": "^4.3.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16"
+  }
+}

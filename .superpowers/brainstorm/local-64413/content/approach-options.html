@@ -1,0 +1,64 @@
+<h2>Escolha o caminho de implementacao</h2>
+<p class="subtitle">O projeto atual e Express + HTML/CSS/JS estatico. Ele nao tem React, Next, shadcn, Tailwind nem TypeScript configurados.</p>
+
+<div class="cards">
+  <div class="card" data-choice="static-enhancement" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">A. Evoluir o site atual</div>
+        <div class="mockup-body">
+          <div class="mock-nav">Foto Fauzi Eventos | Galeria | Login | Pagamento</div>
+          <div style="display:grid;grid-template-columns:1.1fr .9fr;gap:14px;margin-top:14px">
+            <div>
+              <div class="placeholder" style="height:70px">Hero editorial para casamentos, formaturas e aniversarios</div>
+              <div class="placeholder" style="height:46px;margin-top:10px">CTAs: Entrar, Ver eventos, Comprar fotos</div>
+            </div>
+            <div class="placeholder" style="height:132px">Imagem grande de evento</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A. Adaptar no stack atual</h3>
+      <p>Mais rapido e com menor risco: manter Express, login, galeria e Stripe funcionando; recriar as animacoes inspiradas em Framer com CSS/JS e imports ESM quando fizer sentido.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="react-migration" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">B. Migrar para React/shadcn</div>
+        <div class="mockup-body">
+          <div class="mock-nav">/components/ui + Tailwind + TypeScript</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px">
+            <div class="placeholder" style="height:60px">HeroGeometric.tsx</div>
+            <div class="placeholder" style="height:60px">ContainerScroll.tsx</div>
+            <div class="placeholder" style="height:60px">Tabs.tsx</div>
+            <div class="placeholder" style="height:60px">Payment UI.tsx</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B. Criar/migrar para React</h3>
+      <p>Permite usar os componentes exatamente como enviados, mas e uma mudanca maior: setup de Vite/Next, Tailwind, TypeScript, aliases, build e integracao com o backend existente.</p>
+    </div>
+  </div>
+</div>
+
+<div class="pros-cons">
+  <div class="pros">
+    <h4>Minha recomendacao</h4>
+    <ul>
+      <li>Para entregar hoje: A, adaptando o site atual e mantendo pagamento/login reais.</li>
+      <li>Para um projeto escalavel React: B, mas como uma etapa separada.</li>
+    </ul>
+  </div>
+  <div class="cons">
+    <h4>Risco principal</h4>
+    <ul>
+      <li>A nao copia componentes TSX literalmente.</li>
+      <li>B pode quebrar rotas atuais se feita com pressa.</li>
+    </ul>
+  </div>
+</div>
