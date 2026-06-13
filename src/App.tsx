@@ -870,7 +870,11 @@ function App() {
       </AnimatePresence>
 
       <div className={`relative z-10 transition-opacity duration-500 ${booted ? "opacity-100" : "opacity-0"}`}>
-      <header className="sticky top-0 z-50 border-b border-white/10 bg-black/75 backdrop-blur-xl">
+      <header
+        className={`sticky top-0 z-50 border-b border-white/10 bg-black/75 backdrop-blur-xl ${
+          page === "home" ? "hidden" : ""
+        }`}
+      >
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 lg:px-6">
           <button
             type="button"

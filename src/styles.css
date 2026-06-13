@@ -15,6 +15,7 @@
 
 html {
   scroll-behavior: smooth;
+  overflow-x: clip;
 }
 
 body::before,
@@ -63,6 +64,7 @@ body {
   "Segoe UI",
     sans-serif;
   position: relative;
+  overflow-x: clip;
 }
 
 * {
@@ -152,6 +154,203 @@ img {
   mask-image: linear-gradient(180deg, black 72%, transparent 100%);
 }
 
+.premium-grid {
+  background-color: #030304;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 72px 72px;
+  mask-image: linear-gradient(180deg, black 0%, black 88%, transparent 100%);
+}
+
+.premium-action-primary {
+  color: #fff;
+  background: linear-gradient(135deg, #ef2828, #c71818);
+  border: 1px solid rgba(255, 110, 110, 0.35);
+  box-shadow:
+    0 14px 40px rgba(185, 28, 28, 0.24),
+    0 1px 0 rgba(255, 255, 255, 0.18) inset;
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    background-color 180ms ease;
+}
+
+.premium-action-primary:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 18px 48px rgba(220, 38, 38, 0.32),
+    0 1px 0 rgba(255, 255, 255, 0.2) inset;
+}
+
+.premium-action-secondary {
+  color: rgba(255, 255, 255, 0.86);
+  background: rgba(8, 8, 10, 0.68);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(16px);
+  transition:
+    transform 180ms ease,
+    border-color 180ms ease,
+    background-color 180ms ease;
+}
+
+.premium-action-secondary:hover {
+  transform: translateY(-2px);
+  border-color: rgba(248, 113, 113, 0.45);
+  background: rgba(127, 29, 29, 0.18);
+}
+
+.premium-action-primary:focus-visible,
+.premium-action-secondary:focus-visible {
+  outline: 2px solid #ef4444;
+  outline-offset: 3px;
+}
+
+.camera-stage {
+  position: relative;
+  display: grid;
+  min-height: 420px;
+  place-items: center;
+  perspective: 1100px;
+  isolation: isolate;
+}
+
+.camera-glow {
+  position: absolute;
+  width: min(78vw, 580px);
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle, rgba(239, 68, 68, 0.3), rgba(127, 29, 29, 0.1) 40%, transparent 70%);
+  filter: blur(22px);
+  opacity: 0.72;
+  transform: translate3d(8%, 3%, 0);
+}
+
+.camera-float,
+.camera-tilt {
+  position: relative;
+  width: min(86vw, 620px);
+  transform-style: preserve-3d;
+}
+
+.camera-tilt {
+  min-height: 390px;
+}
+
+.camera-fallback,
+.camera-image {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 100%;
+  height: 100%;
+}
+
+.camera-fallback {
+  display: grid;
+  place-items: center;
+  filter: drop-shadow(0 40px 45px rgba(0, 0, 0, 0.75));
+}
+
+.camera-image {
+  z-index: 4;
+  object-fit: contain;
+  filter:
+    drop-shadow(0 45px 55px rgba(0, 0, 0, 0.82))
+    drop-shadow(0 0 35px rgba(239, 68, 68, 0.16));
+}
+
+.camera-body {
+  position: relative;
+  width: 78%;
+  height: 58%;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 42px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.16), transparent 18%),
+    linear-gradient(135deg, #313136, #111114 50%, #050506);
+  box-shadow:
+    0 48px 65px rgba(0, 0, 0, 0.7),
+    0 1px 0 rgba(255, 255, 255, 0.16) inset,
+    -20px 12px 60px rgba(239, 68, 68, 0.1);
+  transform: translateZ(30px) rotate(-2deg);
+}
+
+.camera-top {
+  position: absolute;
+  left: 27%;
+  top: 15%;
+  z-index: -1;
+  width: 34%;
+  height: 25%;
+  clip-path: polygon(16% 100%, 30% 15%, 72% 15%, 88% 100%);
+  background: linear-gradient(145deg, #2e2e33, #09090b);
+  border-top: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.camera-brand {
+  position: absolute;
+  left: 8%;
+  top: 12%;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.65rem;
+  font-weight: 900;
+  letter-spacing: 0.28em;
+}
+
+.camera-lens {
+  position: absolute;
+  left: 32%;
+  top: 50%;
+  width: 48%;
+  aspect-ratio: 1;
+  border-radius: 999px;
+  transform: translate(-50%, -50%) translateZ(55px);
+  border: 10px solid #111114;
+  background:
+    radial-gradient(circle at 36% 30%, #555 0 5%, #17171b 10% 28%, #060607 62%);
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.16),
+    0 20px 36px rgba(0, 0, 0, 0.8),
+    0 0 40px rgba(239, 68, 68, 0.12);
+}
+
+.camera-lens-glass {
+  position: absolute;
+  inset: 18%;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 32% 25%, rgba(255, 190, 190, 0.9) 0 4%, transparent 12%),
+    radial-gradient(circle at 42% 36%, rgba(180, 35, 50, 0.7), transparent 24%),
+    radial-gradient(circle, #18213b 8%, #080b16 45%, #020204 72%);
+  box-shadow: 0 0 28px rgba(239, 68, 68, 0.22) inset;
+}
+
+.camera-grip {
+  position: absolute;
+  right: -1px;
+  top: 25%;
+  width: 25%;
+  height: 75%;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 30px 40px 40px 28px;
+  background: linear-gradient(135deg, #252529, #070708 72%);
+  box-shadow: -10px 0 25px rgba(0, 0, 0, 0.3) inset;
+}
+
+.camera-indicator {
+  position: absolute;
+  right: 11%;
+  top: 14%;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #ef4444;
+  box-shadow: 0 0 18px rgba(239, 68, 68, 0.95);
+}
+
 @keyframes float-slow {
   0%,
   100% {
@@ -181,5 +380,38 @@ img {
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .premium-grid {
+    background-size: 52px 52px;
+  }
+
+  .camera-stage {
+    min-height: 310px;
+  }
+
+  .camera-float,
+  .camera-tilt {
+    width: min(88vw, 296px);
+  }
+
+  .camera-tilt {
+    min-height: 280px;
+  }
+
+  .camera-body {
+    width: 88%;
+    height: 54%;
+    border-radius: 28px;
+  }
+
+  .camera-lens {
+    border-width: 7px;
+  }
+
+  .hero-actions > * {
+    width: 100%;
   }
 }
