@@ -49,7 +49,7 @@ async function run() {
       throw new Error("As senhas informadas não coincidem.");
     }
 
-    await connectDatabase(env.MONGO_URI);
+    await connectDatabase(env.MONGODB_URI);
     const user = await createOrPromoteAdmin({
       User,
       nome,

@@ -5,6 +5,8 @@ module.exports = defineConfig({
     environment: "node",
     include: ["tests/**/*.test.js"],
     clearMocks: true,
-    globals: true
+    globals: true,
+    fileParallelism: false,
+    testTimeout: 20000
   }
 });

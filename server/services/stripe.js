@@ -10,6 +10,7 @@ function getStripeClient(env = null) {
     const error = new Error("Stripe não está configurado.");
     error.status = 503;
     error.code = "STRIPE_NOT_CONFIGURED";
+    error.expose = true;
     throw error;
   }
   stripeClient = new Stripe(runtime.STRIPE_SECRET_KEY);

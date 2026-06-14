@@ -68,7 +68,9 @@ function serializePhoto(photo, galleryToken = null) {
     cidade: photo.cidade,
     destaque: photo.destaque,
     requiresAccess: photo.requiresAccess,
-    downloadableAfterPayment: photo.downloadableAfterPayment
+    downloadableAfterPayment: photo.downloadableAfterPayment,
+    storageProvider: photo.storageProvider,
+    createdAt: photo.createdAt
   };
 }
 
@@ -111,23 +113,28 @@ router.post("/acessar", async (req, res) => {
       return res.status(404).json({ error: "Galeria não encontrada." });
     }
 
-    const token = signGalleryToken({
+    const gallerySession = {
       galleryId: String(gallery._id),
       accessCodeId: String(accessCode._id),
       customerName: gallery.customerName || accessCode.customerName || "",
       customerEmail: gallery.customerEmail || accessCode.customerEmail || ""
-    });
+    };
+    const token = signGalleryToken(gallerySession);
 
     accessCode.lastUsedAt = new Date();
     await accessCode.save();
 
     const photos = await Foto.find({ galleryId: String(gallery._id) }).sort({ createdAt: -1 });
+    const purchases = await Compra.find(
+      buildGalleryPurchaseFilter(gallerySession)
+    );
 
     res.json({
       token,
       gallery: serializeGallery(gallery),
       code: serializeCode(accessCode),
-      photos: photos.map((photo) => serializePhoto(photo, token))
+      photos: photos.map((photo) => serializePhoto(photo, token)),
+      purchases
     });
   } catch (error) {
     console.error(error);
@@ -161,16 +168,18 @@ router.get("/me", requireGallerySession, async (req, res) => {
 
 router.get("/admin/overview", requireAuth, requireAdmin, async (_req, res) => {
   try {
-    const [galleries, accessCodes, purchases] = await Promise.all([
+    const [galleries, accessCodes, purchases, photos] = await Promise.all([
       Gallery.find({}).sort({ createdAt: -1 }),
       AccessCode.find({}).sort({ createdAt: -1 }),
-      Compra.find({}).sort({ createdAt: -1 }).limit(100)
+      Compra.find({}).sort({ createdAt: -1 }).limit(100),
+      Foto.find({}).sort({ createdAt: -1 }).limit(100)
     ]);
 
     res.json({
       galleries: galleries.map(serializeGallery),
       accessCodes: accessCodes.map(serializeCode),
-      purchases
+      purchases,
+      photos: photos.map((photo) => serializePhoto(photo))
     });
   } catch (error) {
     console.error(error);

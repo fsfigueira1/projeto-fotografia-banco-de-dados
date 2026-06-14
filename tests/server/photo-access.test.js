@@ -82,4 +82,14 @@ describe("purchased photo access", () => {
       status: "paid"
     });
   });
+
+  it("loads paid purchases during initial gallery access", () => {
+    const source = require("node:fs").readFileSync(
+      require("node:path").join(process.cwd(), "routes/galerias.js"),
+      "utf8"
+    );
+
+    expect(source).toContain("buildGalleryPurchaseFilter(gallerySession)");
+    expect(source).toContain("purchases,");
+  });
 });

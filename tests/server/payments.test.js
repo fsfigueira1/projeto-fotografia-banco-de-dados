@@ -59,6 +59,21 @@ describe("payment routes", () => {
     expect(response.status).toBe(401);
   });
 
+  it("rejects checkout with an empty cart", async () => {
+    const service = {
+      createCheckout: vi.fn()
+    };
+    const app = createTestApp({ service });
+
+    const response = await request(app)
+      .post("/api/payments/checkout")
+      .set("x-test-user", "trusted-user")
+      .send({});
+
+    expect(response.status).toBe(400);
+    expect(service.createCheckout).not.toHaveBeenCalled();
+  });
+
   it("passes the authenticated user and scoped gallery to the service", async () => {
     const createCheckout = vi.fn().mockResolvedValue({
       purchase: { _id: "purchase-1", total: 100, status: "pending" },
@@ -117,5 +132,30 @@ describe("payment routes", () => {
       userId: "trusted-user"
     });
     expect(response.body.data.purchase.status).toBe("pending");
+  });
+
+  it("returns a clear service error when Stripe is not configured", async () => {
+    const error = Object.assign(
+      new Error("Stripe não está configurado."),
+      {
+        status: 503,
+        code: "STRIPE_NOT_CONFIGURED",
+        expose: true
+      }
+    );
+    const app = createTestApp({
+      service: {
+        createCheckout: vi.fn().mockRejectedValue(error)
+      }
+    });
+
+    const response = await request(app)
+      .post("/api/payments/checkout")
+      .set("x-test-user", "trusted-user")
+      .send({ serviceId: "casamento" });
+
+    expect(response.status).toBe(503);
+    expect(response.body.error).toBe("STRIPE_NOT_CONFIGURED");
+    expect(response.body.message).toBe("Stripe não está configurado.");
   });
 });

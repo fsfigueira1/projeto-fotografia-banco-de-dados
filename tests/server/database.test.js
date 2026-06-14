@@ -29,4 +29,25 @@ describe("database connection", () => {
 
     expect(disconnect).toHaveBeenCalledOnce();
   });
+
+  it("reports the database target without exposing credentials", async () => {
+    vi.spyOn(mongoose, "connect").mockRejectedValue(
+      new Error("authentication failed")
+    );
+    const { connectDatabase } = require("../../server/config/database");
+
+    await expect(
+      connectDatabase(
+        "mongodb+srv://private-user:private-password@example.mongodb.net/fotografia"
+      )
+    ).rejects.toThrow(
+      "Não foi possível conectar ao MongoDB em example.mongodb.net"
+    );
+
+    await expect(
+      connectDatabase(
+        "mongodb+srv://private-user:private-password@example.mongodb.net/fotografia"
+      )
+    ).rejects.not.toThrow(/private-password/);
+  });
 });

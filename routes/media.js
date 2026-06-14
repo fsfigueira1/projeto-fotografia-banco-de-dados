@@ -1,77 +1,202 @@
 const express = require("express");
 const fs = require("fs");
 const path = require("path");
-const router = express.Router();
 
-const { requireGallerySession, requireAuth, requireAdmin } = require("../server/security");
+const PhotoModel = require("../models/Foto");
+const PurchaseModel = require("../models/Compra");
+const {
+  requireAdmin: defaultRequireAdmin,
+  requireAuth: defaultRequireAuth
+} = require("../server/middleware/auth");
+const {
+  requireGallerySession: defaultRequireGallerySession
+} = require("../server/security");
+const { createMediaService } = require("../server/services/media");
 
 function resolveUploadPath(fileName) {
   return path.join(process.cwd(), "uploads", path.basename(fileName));
 }
 
-router.get("/admin/:fileName", requireAuth, requireAdmin, async (req, res) => {
-  try {
-    const filePath = resolveUploadPath(req.params.fileName);
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: "Imagem não encontrada." });
-    }
+function createRouteError(message, status, code) {
+  const error = new Error(message);
+  error.status = status;
+  error.code = code;
+  return error;
+}
 
-    res.setHeader("Cache-Control", "private, no-store");
-    return res.sendFile(filePath);
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({ error: "Não foi possível carregar a imagem." });
-  }
-});
+function createMediaRouter({
+  Photo = PhotoModel,
+  Purchase = PurchaseModel,
+  mediaService = createMediaService(),
+  requireGallerySession = defaultRequireGallerySession,
+  requireAuth = defaultRequireAuth,
+  requireAdmin = defaultRequireAdmin
+} = {}) {
+  const router = express.Router();
 
-router.get("/proxy", requireGallerySession, async (req, res) => {
-  try {
-    const source = String(req.query.src || "");
-    if (!source) {
-      return res.status(400).json({ error: "src é obrigatório." });
-    }
+  router.get(
+    "/photos/:photoId/preview",
+    requireGallerySession,
+    async (req, res, next) => {
+      try {
+        const photo = await Photo.findById(req.params.photoId);
+        if (!photo) {
+          throw createRouteError(
+            "Foto não encontrada.",
+            404,
+            "PHOTO_NOT_FOUND"
+          );
+        }
+        if (
+          String(photo.galleryId) !==
+          String(req.gallerySession.galleryId)
+        ) {
+          throw createRouteError(
+            "Foto não autorizada para esta galeria.",
+            403,
+            "PHOTO_NOT_AUTHORIZED"
+          );
+        }
 
-    res.setHeader("Cache-Control", "private, no-store");
-
-    if (source.startsWith("/uploads/")) {
-      const filePath = resolveUploadPath(source.split("/").pop());
-      if (!fs.existsSync(filePath)) {
-        return res.status(404).json({ error: "Imagem não encontrada." });
+        res.setHeader("Cache-Control", "private, no-store");
+        const localPath = mediaService.getLocalFilePath?.(photo);
+        if (localPath) return res.sendFile(localPath);
+        return res.redirect(mediaService.getPreviewUrl(photo));
+      } catch (error) {
+        return next(error);
       }
+    }
+  );
+
+  router.get(
+    "/photos/:photoId/download",
+    requireAuth,
+    async (req, res, next) => {
+      try {
+        const photo = await Photo.findById(req.params.photoId);
+        if (!photo) {
+          throw createRouteError(
+            "Foto não encontrada.",
+            404,
+            "PHOTO_NOT_FOUND"
+          );
+        }
+
+        const purchase = await Purchase.findOne({
+          userId: req.user._id,
+          status: "paid",
+          photoIds: String(photo._id)
+        });
+        if (!purchase) {
+          throw createRouteError(
+            "Pagamento aprovado obrigatório para download.",
+            403,
+            "PHOTO_NOT_PURCHASED"
+          );
+        }
+
+        res.setHeader("Cache-Control", "private, no-store");
+        const localPath = mediaService.getLocalFilePath?.(photo);
+        if (localPath) return res.download(localPath);
+        return res.redirect(mediaService.getDownloadUrl(photo));
+      } catch (error) {
+        return next(error);
+      }
+    }
+  );
+
+  router.get("/admin/:fileName", requireAuth, requireAdmin, (req, res, next) => {
+    try {
+      const filePath = resolveUploadPath(req.params.fileName);
+      if (!fs.existsSync(filePath)) {
+        throw createRouteError(
+          "Imagem não encontrada.",
+          404,
+          "IMAGE_NOT_FOUND"
+        );
+      }
+
+      res.setHeader("Cache-Control", "private, no-store");
       return res.sendFile(filePath);
+    } catch (error) {
+      return next(error);
     }
+  });
 
-    if (!/^https?:\/\//i.test(source)) {
-      return res.status(400).json({ error: "Origem inválida." });
+  router.get("/proxy", requireGallerySession, async (req, res, next) => {
+    try {
+      const source = String(req.query.src || "");
+      if (!source) {
+        throw createRouteError(
+          "src é obrigatório.",
+          400,
+          "MEDIA_SOURCE_REQUIRED"
+        );
+      }
+
+      res.setHeader("Cache-Control", "private, no-store");
+
+      if (source.startsWith("/uploads/")) {
+        const filePath = resolveUploadPath(source.split("/").pop());
+        if (!fs.existsSync(filePath)) {
+          throw createRouteError(
+            "Imagem não encontrada.",
+            404,
+            "IMAGE_NOT_FOUND"
+          );
+        }
+        return res.sendFile(filePath);
+      }
+
+      if (!/^https?:\/\//i.test(source)) {
+        throw createRouteError(
+          "Origem inválida.",
+          400,
+          "INVALID_MEDIA_SOURCE"
+        );
+      }
+
+      const remote = await fetch(source);
+      if (!remote.ok) {
+        throw createRouteError(
+          "Não foi possível carregar a imagem remota.",
+          502,
+          "REMOTE_MEDIA_UNAVAILABLE"
+        );
+      }
+
+      res.setHeader(
+        "Content-Type",
+        remote.headers.get("content-type") || "image/jpeg"
+      );
+      const arrayBuffer = await remote.arrayBuffer();
+      return res.send(Buffer.from(arrayBuffer));
+    } catch (error) {
+      return next(error);
     }
+  });
 
-    const remote = await fetch(source);
-    if (!remote.ok) {
-      return res.status(502).json({ error: "Não foi possível carregar a imagem remota." });
+  router.get("/:fileName", requireGallerySession, (req, res, next) => {
+    try {
+      const filePath = resolveUploadPath(req.params.fileName);
+      if (!fs.existsSync(filePath)) {
+        throw createRouteError(
+          "Imagem não encontrada.",
+          404,
+          "IMAGE_NOT_FOUND"
+        );
+      }
+
+      res.setHeader("Cache-Control", "private, no-store");
+      return res.sendFile(filePath);
+    } catch (error) {
+      return next(error);
     }
+  });
 
-    res.setHeader("Content-Type", remote.headers.get("content-type") || "image/jpeg");
-    const arrayBuffer = await remote.arrayBuffer();
-    return res.send(Buffer.from(arrayBuffer));
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({ error: "Não foi possível carregar a imagem." });
-  }
-});
+  return router;
+}
 
-router.get("/:fileName", requireGallerySession, async (req, res) => {
-  try {
-    const filePath = resolveUploadPath(req.params.fileName);
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: "Imagem não encontrada." });
-    }
-
-    res.setHeader("Cache-Control", "private, no-store");
-    return res.sendFile(filePath);
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({ error: "Não foi possível carregar a imagem." });
-  }
-});
-
-module.exports = router;
+module.exports = createMediaRouter();
+module.exports.createMediaRouter = createMediaRouter;
+module.exports.resolveUploadPath = resolveUploadPath;

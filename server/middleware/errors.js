@@ -38,9 +38,14 @@ function errorHandler(error, _req, res, _next) {
     console.error(error);
   }
 
+  const status = Number(error?.status) || 500;
+  const safeToExpose =
+    status < 500 ||
+    error?.expose === true;
+
   return sendError(res, {
-    status: Number(error?.status) || 500,
-    message: Number(error?.status) < 500 && error?.message
+    status,
+    message: safeToExpose && error?.message
       ? error.message
       : "Não foi possível concluir a solicitação.",
     error: error?.code || "INTERNAL_ERROR"

@@ -25,7 +25,9 @@ function loadDefaultRouters() {
 }
 
 function createCorsOptions(env) {
-  const allowedOrigins = new Set(env.FRONTEND_URLS || []);
+  const allowedOrigins = new Set(
+    env.CLIENT_ORIGINS || env.FRONTEND_URLS || []
+  );
   return {
     credentials: true,
     origin(origin, callback) {

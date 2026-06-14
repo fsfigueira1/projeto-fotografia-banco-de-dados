@@ -30,7 +30,7 @@ function createDependencies(photos) {
       }
     },
     env: {
-      FRONTEND_URLS: ["https://gallery.example.com"]
+      CLIENT_ORIGINS: ["https://gallery.example.com"]
     },
     createdPurchases,
     createdSessions
@@ -56,6 +56,12 @@ describe("purchase service", () => {
 
     expect(result.purchase.total).toBe(100);
     expect(dependencies.createdSessions[0].line_items[0].price_data.unit_amount).toBe(10000);
+    expect(dependencies.createdSessions[0].success_url).toBe(
+      "https://gallery.example.com/sucesso.html?session_id={CHECKOUT_SESSION_ID}"
+    );
+    expect(dependencies.createdSessions[0].cancel_url).toBe(
+      "https://gallery.example.com/cancelado.html?session_id={CHECKOUT_SESSION_ID}"
+    );
   });
 
   it("rejects duplicate photo identifiers", async () => {

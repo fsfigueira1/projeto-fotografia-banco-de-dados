@@ -122,4 +122,30 @@ describe("protected media routes", () => {
       photoIds: "photo-1"
     });
   });
+
+  it("rejects downloads without a paid purchase", async () => {
+    const app = createMediaApp({
+      Photo: {
+        findById: vi.fn().mockResolvedValue({
+          _id: "photo-1",
+          galleryId: "gallery-1",
+          storageProvider: "cloudinary",
+          providerAssetId: "asset-1"
+        })
+      },
+      Purchase: {
+        findOne: vi.fn().mockResolvedValue(null)
+      },
+      mediaService: {
+        getDownloadUrl: vi.fn()
+      }
+    });
+
+    const response = await request(app)
+      .get("/api/media/photos/photo-1/download")
+      .set("x-test-user", "user-1");
+
+    expect(response.status).toBe(403);
+    expect(response.body.error).toBe("PHOTO_NOT_PURCHASED");
+  });
 });

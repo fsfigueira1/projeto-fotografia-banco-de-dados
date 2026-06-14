@@ -129,7 +129,11 @@ function createPurchaseService({
       ? prepareServiceCheckout(input)
       : await preparePhotoCheckout(input);
     const paymentMethod = normalizePaymentMethod(input.paymentMethod);
-    const frontendUrl = env.FRONTEND_URLS[0].replace(/\/+$/, "");
+    const frontendUrl = (
+      env.CLIENT_ORIGINS ||
+      env.FRONTEND_URLS ||
+      []
+    )[0].replace(/\/+$/, "");
 
     const metadata = {
       userId: String(input.userId),

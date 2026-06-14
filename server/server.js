@@ -4,7 +4,7 @@ const { getEnv } = require("./config/env");
 
 async function startServer() {
   const env = getEnv();
-  await connectDatabase(env.MONGO_URI);
+  await connectDatabase(env.MONGODB_URI);
 
   const app = createApp({ env });
   const server = app.listen(env.PORT, () => {

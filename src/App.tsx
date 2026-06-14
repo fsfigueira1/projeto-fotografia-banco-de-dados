@@ -8,6 +8,7 @@ import {
   Check,
   ChevronRight,
   CircleUserRound,
+  Copy,
   Eye,
   GalleryHorizontalEnd,
   ImagePlus,
@@ -15,20 +16,26 @@ import {
   LogOut,
   Mail,
   Menu,
-  PackageSearch,
   Plus,
   ReceiptText,
   ShieldCheck,
   ShoppingBag,
   Sparkles,
-  SquarePen,
   Trash2,
   Upload
 } from "lucide-react";
 import { AuthModal } from "@/components/AuthModal";
+import { AdminFeedback } from "@/components/admin/AdminFeedback";
+import { AdminStatCard } from "@/components/admin/AdminStatCard";
+import { GalleryPhoto } from "@/components/GalleryPhoto";
 import { PremiumHome } from "@/components/PremiumHome";
 import { getApiUrl } from "@/lib/api";
-import { ScrollTriggered, type PhotoStackItem } from "@/components/ui/stack-card";
+import {
+  calculateSelectedTotal,
+  collectOwnedPhotoIds,
+  selectAvailablePhotos
+} from "@/lib/gallery";
+import { ScrollTriggered } from "@/components/ui/stack-card";
 import ScrollExpandMedia from "@/components/ui/scroll-expansion-hero";
 
 type Mode = "login" | "register";
@@ -79,6 +86,7 @@ type AccessCode = {
   customerId?: string;
   createdBy?: string;
   lastUsedAt?: string | null;
+  createdAt?: string;
 };
 
 type Photo = {
@@ -93,6 +101,8 @@ type Photo = {
   destaque?: boolean;
   requiresAccess?: boolean;
   downloadableAfterPayment?: boolean;
+  storageProvider?: "local" | "cloudinary";
+  createdAt?: string;
 };
 
 type Purchase = {
@@ -109,6 +119,8 @@ type Purchase = {
   pago?: boolean;
   status?: string;
   sessionId?: string;
+  createdAt?: string;
+  paidAt?: string | null;
 };
 
 type GallerySession = {
@@ -123,6 +135,7 @@ type AdminOverview = {
   galleries: Gallery[];
   accessCodes: AccessCode[];
   purchases: Purchase[];
+  photos: Photo[];
 };
 
 const services: Service[] = [
@@ -187,6 +200,9 @@ const experienceSteps = [
 
 const STORE_USER_KEY = "ff:user";
 const STORE_GALLERY_KEY = "ff:gallery-session";
+const WHATSAPP_PHONE = String(
+  import.meta.env.VITE_WHATSAPP_PHONE || ""
+).replace(/\D/g, "");
 function readStoredUser(): User | null {
   try {
     const raw = localStorage.getItem(STORE_USER_KEY);
@@ -253,10 +269,23 @@ function App() {
 
   const [selectedPhotoIds, setSelectedPhotoIds] = useState<string[]>([]);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("pix");
+  const [checkoutError, setCheckoutError] = useState("");
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [galleryActionError, setGalleryActionError] = useState("");
+  const [downloadingPhotoId, setDownloadingPhotoId] = useState<string | null>(null);
 
-  const [adminOverview, setAdminOverview] = useState<AdminOverview>({ galleries: [], accessCodes: [], purchases: [] });
+  const [adminOverview, setAdminOverview] = useState<AdminOverview>({
+    galleries: [],
+    accessCodes: [],
+    purchases: [],
+    photos: []
+  });
   const [adminLoading, setAdminLoading] = useState(false);
   const [adminError, setAdminError] = useState("");
+  const [adminSuccess, setAdminSuccess] = useState("");
+  const [adminActionLoading, setAdminActionLoading] = useState("");
+  const [uploadLoading, setUploadLoading] = useState(false);
+  const [lastCreatedCode, setLastCreatedCode] = useState("");
   const [editingGalleryId, setEditingGalleryId] = useState<string | null>(null);
   const [editingCodeId, setEditingCodeId] = useState<string | null>(null);
   const [galleryForm, setGalleryForm] = useState({
@@ -312,8 +341,14 @@ function App() {
   useEffect(() => {
     if (gallerySession) {
       setSelectedPhotoIds([]);
+      setCheckoutError("");
+      setGalleryActionError("");
     }
   }, [gallerySession?.gallery?._id]);
+
+  useEffect(() => {
+    setCheckoutError("");
+  }, [paymentMethod, selectedPhotoIds]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setBooted(true), 900);
@@ -349,25 +384,22 @@ function App() {
   }, []);
 
   const isAdmin = user?.role === "admin";
-  const ownedPhotoIds = useMemo(() => {
-    const owned = new Set<string>();
-    for (const purchase of gallerySession?.purchases || []) {
-      if (!purchase.pago && purchase.status !== "paid") continue;
-      for (const id of purchase.photoIds || []) {
-        owned.add(String(id));
-      }
-      if (purchase.fotoId) owned.add(String(purchase.fotoId));
-    }
-    return owned;
-  }, [gallerySession?.purchases]);
+  const ownedPhotoIds = useMemo(
+    () => collectOwnedPhotoIds(gallerySession?.purchases || []),
+    [gallerySession?.purchases]
+  );
 
   const selectedPhotos = useMemo(() => {
     if (!gallerySession) return [];
-    return gallerySession.photos.filter((photo) => selectedPhotoIds.includes(String(photo._id)));
-  }, [gallerySession, selectedPhotoIds]);
+    return selectAvailablePhotos(
+      gallerySession.photos,
+      selectedPhotoIds,
+      ownedPhotoIds
+    );
+  }, [gallerySession, ownedPhotoIds, selectedPhotoIds]);
 
   const selectedTotal = useMemo(
-    () => selectedPhotos.reduce((sum, photo) => sum + Number(photo.preco || 0), 0),
+    () => calculateSelectedTotal(selectedPhotos),
     [selectedPhotos]
   );
 
@@ -387,13 +419,19 @@ function App() {
 
   async function refreshGallerySession(token: string) {
     setGalleryLoading(true);
+    setGalleryActionError("");
     try {
       const response = await fetch(apiUrl("/galerias/me"), {
         credentials: "include",
         headers: { "x-gallery-token": token }
       });
       if (!response.ok) {
-        throw new Error("Sessão da galeria inválida.");
+        const data = await response.json().catch(() => null);
+        throw new Error(
+          data?.message ||
+            data?.error ||
+            "Sessão da galeria inválida ou expirada."
+        );
       }
       const data = await response.json();
       setGallerySession({
@@ -404,9 +442,15 @@ function App() {
         purchases: data.purchases || []
       });
       setPage("home");
-    } catch {
+    } catch (error) {
       setGallerySession(null);
       writeStoredGallery(null);
+      setGalleryError(
+        error instanceof Error
+          ? error.message
+          : "Sessão da galeria inválida ou expirada."
+      );
+      setGalleryAccessOpen(true);
     } finally {
       setGalleryLoading(false);
     }
@@ -430,7 +474,8 @@ function App() {
       setAdminOverview({
         galleries: data.galleries || [],
         accessCodes: data.accessCodes || [],
-        purchases: data.purchases || []
+        purchases: data.purchases || [],
+        photos: data.photos || []
       });
     } catch (error) {
       setAdminError(error instanceof Error ? error.message : "Não foi possível carregar o painel.");
@@ -509,12 +554,16 @@ function App() {
 
   function closeGallery() {
     setSelectedPhotoIds([]);
+    setCheckoutError("");
+    setGalleryActionError("");
     setGallerySession(null);
     writeStoredGallery(null);
     setPage("home");
   }
 
   function togglePhoto(photoId: string) {
+    if (ownedPhotoIds.has(photoId)) return;
+
     setSelectedPhotoIds((current) =>
       current.includes(photoId)
         ? current.filter((id) => id !== photoId)
@@ -523,37 +572,108 @@ function App() {
   }
 
   async function createCheckout(payload: Record<string, unknown>) {
+    const photoIds = Array.isArray(payload.photoIds)
+      ? payload.photoIds.map(String)
+      : [];
+    if (!payload.serviceId && !photoIds.length) {
+      setCheckoutError("Selecione pelo menos uma foto para continuar.");
+      return;
+    }
+
     if (!user?.token && !user?._id) {
       setAuthMode("login");
       setAuthOpen(true);
       return;
     }
 
-    const checkoutHeaders: Record<string, string> = {
-      "Content-Type": "application/json",
-      ...authHeaders(user)
-    };
-    if (gallerySession?.token) {
-      checkoutHeaders["x-gallery-token"] = gallerySession.token;
-    }
+    setCheckoutLoading(true);
+    setCheckoutError("");
+    try {
+      const checkoutHeaders: Record<string, string> = {
+        "Content-Type": "application/json",
+        ...authHeaders(user)
+      };
+      if (gallerySession?.token) {
+        checkoutHeaders["x-gallery-token"] = gallerySession.token;
+      }
 
-    const response = await fetch(apiUrl("/pagamento/criar-checkout"), {
-      method: "POST",
-      credentials: "include",
-      headers: checkoutHeaders,
-      body: JSON.stringify({
-        ...payload,
-        paymentMethod
-      })
-    });
+      const response = await fetch(apiUrl("/pagamento/criar-checkout"), {
+        method: "POST",
+        credentials: "include",
+        headers: checkoutHeaders,
+        body: JSON.stringify({
+          ...payload,
+          paymentMethod
+        })
+      });
 
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data?.error || "Não foi possível iniciar o checkout.");
-    }
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        const message =
+          data?.message ||
+          data?.error ||
+          "Não foi possível iniciar o checkout.";
+        setCheckoutError(message);
+        return;
+      }
 
-    if (data?.url) {
+      if (typeof data?.url !== "string" || !data.url.trim()) {
+        setCheckoutError("O checkout não retornou uma URL válida.");
+        return;
+      }
+
       window.location.href = data.url;
+    } catch {
+      setCheckoutError(
+        "Não foi possível conectar ao checkout. Tente novamente."
+      );
+    } finally {
+      setCheckoutLoading(false);
+    }
+  }
+
+  async function downloadPurchasedPhoto(photoId: string) {
+    if (!ownedPhotoIds.has(photoId) || downloadingPhotoId) return;
+
+    setDownloadingPhotoId(photoId);
+    setGalleryActionError("");
+    try {
+      const response = await fetch(
+        apiUrl(`/media/photos/${photoId}/download`),
+        {
+          credentials: "include",
+          headers: {
+            ...authHeaders(user)
+          }
+        }
+      );
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        throw new Error(
+          data?.message ||
+            data?.error ||
+            "Não foi possível baixar esta foto."
+        );
+      }
+
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = `fauzi-eventos-${photoId}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (error) {
+      setGalleryActionError(
+        error instanceof Error
+          ? error.message
+          : "Não foi possível baixar esta foto."
+      );
+    } finally {
+      setDownloadingPhotoId(null);
     }
   }
 
@@ -567,23 +687,39 @@ function App() {
   }
 
   function openWhatsAppForService(service: Service) {
-    const phone = "5511999999999";
+    if (!WHATSAPP_PHONE) return;
     const message = encodeURIComponent(
       `Olá, quero contratar o serviço ${service.title} da Fauzi Eventos.`
     );
-    window.open(`https://wa.me/${phone}?text=${message}`, "_blank", "noopener,noreferrer");
+    window.open(
+      `https://wa.me/${WHATSAPP_PHONE}?text=${message}`,
+      "_blank",
+      "noopener,noreferrer"
+    );
   }
 
   function openWhatsAppForPhotos() {
-    const phone = "5511999999999";
+    if (!WHATSAPP_PHONE) return;
     const message = encodeURIComponent(
       `Olá, quero comprar as fotos selecionadas da galeria ${gallerySession?.gallery.title || ""}.`
     );
-    window.open(`https://wa.me/${phone}?text=${message}`, "_blank", "noopener,noreferrer");
+    window.open(
+      `https://wa.me/${WHATSAPP_PHONE}?text=${message}`,
+      "_blank",
+      "noopener,noreferrer"
+    );
   }
 
   async function saveGallery() {
     if (!user || !isAdmin) return;
+    if (!galleryForm.title.trim() || !galleryForm.slug.trim()) {
+      setAdminError("Informe o título e o slug da galeria.");
+      return;
+    }
+
+    setAdminActionLoading("gallery");
+    setAdminError("");
+    setAdminSuccess("");
     const payload = {
       ...galleryForm,
       photoIds: editingGalleryId
@@ -598,37 +734,68 @@ function App() {
 
     const method = editingGalleryId ? "PATCH" : "POST";
 
-    const response = await fetch(url, {
-      method,
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-        ...authHeaders(user)
-      },
-      body: JSON.stringify(payload)
-    });
+    try {
+      const response = await fetch(url, {
+        method,
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          ...authHeaders(user)
+        },
+        body: JSON.stringify(payload)
+      });
 
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data?.error || "Não foi possível salvar a galeria.");
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(
+          data?.message ||
+            data?.error ||
+            "Não foi possível salvar a galeria."
+        );
+      }
+
+      await refreshAdminOverview();
+      setAdminSuccess(
+        editingGalleryId
+          ? "Galeria atualizada com sucesso."
+          : "Galeria criada com sucesso."
+      );
+      setEditingGalleryId(null);
+      setGalleryForm({
+        title: "",
+        slug: "",
+        eventType: "",
+        description: "",
+        customerName: "",
+        customerEmail: "",
+        eventDate: "",
+        status: "draft"
+      });
+    } catch (error) {
+      setAdminError(
+        error instanceof Error
+          ? error.message
+          : "Não foi possível salvar a galeria."
+      );
+    } finally {
+      setAdminActionLoading("");
     }
-
-    await refreshAdminOverview();
-    setEditingGalleryId(null);
-    setGalleryForm({
-      title: "",
-      slug: "",
-      eventType: "",
-      description: "",
-      customerName: "",
-      customerEmail: "",
-      eventDate: "",
-      status: "draft"
-    });
   }
 
   async function saveCode() {
     if (!user || !isAdmin) return;
+    if (!codeForm.galleryId) {
+      setAdminError("Selecione uma galeria para o código.");
+      return;
+    }
+    if (!editingCodeId && !codeForm.code.trim()) {
+      setAdminError("Informe o código de acesso.");
+      return;
+    }
+
+    setAdminActionLoading("code");
+    setAdminError("");
+    setAdminSuccess("");
     const url = editingCodeId
       ? apiUrl(`/galerias/admin/codes/${editingCodeId}`)
       : apiUrl("/galerias/admin/codes");
@@ -640,42 +807,73 @@ function App() {
       expiresAt: codeForm.expiresAt || null
     };
 
-    const response = await fetch(url, {
-      method,
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-        ...authHeaders(user)
-      },
-      body: JSON.stringify(payload)
-    });
+    try {
+      const response = await fetch(url, {
+        method,
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          ...authHeaders(user)
+        },
+        body: JSON.stringify(payload)
+      });
 
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data?.error || "Não foi possível salvar o código.");
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(
+          data?.message ||
+            data?.error ||
+            "Não foi possível salvar o código."
+        );
+      }
+
+      const createdCode = editingCodeId ? "" : codeForm.code.trim();
+      await refreshAdminOverview();
+      setLastCreatedCode(createdCode);
+      setAdminSuccess(
+        editingCodeId
+          ? "Código atualizado com sucesso."
+          : "Código criado. Copie e envie ao cliente."
+      );
+      setEditingCodeId(null);
+      setCodeForm({
+        galleryId: "",
+        label: "",
+        code: "",
+        expiresAt: "",
+        customerName: "",
+        customerEmail: "",
+        active: false
+      });
+    } catch (error) {
+      setAdminError(
+        error instanceof Error
+          ? error.message
+          : "Não foi possível salvar o código."
+      );
+    } finally {
+      setAdminActionLoading("");
     }
-
-    await refreshAdminOverview();
-    setEditingCodeId(null);
-    setCodeForm({
-      galleryId: "",
-      label: "",
-      code: "",
-      expiresAt: "",
-      customerName: "",
-      customerEmail: "",
-      active: false
-    });
   }
 
   async function uploadPhoto(event: FormEvent) {
     event.preventDefault();
     if (!user || !isAdmin) return;
+    if (!uploadForm.galleryId) {
+      setAdminError("Selecione uma galeria antes de enviar a foto.");
+      return;
+    }
 
     const input = (event.target as HTMLFormElement).elements.namedItem("foto") as HTMLInputElement | null;
     const file = input?.files?.[0];
-    if (!file) return;
+    if (!file) {
+      setAdminError("Selecione uma imagem para enviar.");
+      return;
+    }
 
+    setUploadLoading(true);
+    setAdminError("");
+    setAdminSuccess("");
     const formData = new FormData();
     formData.append("foto", file);
     formData.append("galleryId", uploadForm.galleryId);
@@ -685,69 +883,154 @@ function App() {
     formData.append("destaque", String(uploadForm.destaque));
     formData.append("requiresAccess", String(uploadForm.requiresAccess));
 
-    const response = await fetch(apiUrl("/upload"), {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        ...authHeaders(user)
-      },
-      body: formData
-    });
+    try {
+      const response = await fetch(apiUrl("/upload"), {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          ...authHeaders(user)
+        },
+        body: formData
+      });
 
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data?.error || "Não foi possível enviar a foto.");
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(
+          data?.message ||
+            data?.error ||
+            "Não foi possível enviar a foto."
+        );
+      }
+
+      await refreshAdminOverview();
+      setAdminSuccess("Foto enviada com sucesso.");
+      (event.target as HTMLFormElement).reset();
+    } catch (error) {
+      setAdminError(
+        error instanceof Error
+          ? error.message
+          : "Não foi possível enviar a foto."
+      );
+    } finally {
+      setUploadLoading(false);
     }
-
-    await refreshAdminOverview();
   }
 
   async function updateGalleryStatus(id: string, status: Gallery["status"]) {
     if (!user || !isAdmin) return;
-    await fetch(apiUrl(`/galerias/admin/galleries/${id}`), {
-      method: "PATCH",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-        ...authHeaders(user)
-      },
-      body: JSON.stringify({ status })
-    });
-    await refreshAdminOverview();
+    setAdminActionLoading(`gallery-status-${id}`);
+    setAdminError("");
+    setAdminSuccess("");
+    try {
+      const response = await fetch(apiUrl(`/galerias/admin/galleries/${id}`), {
+        method: "PATCH",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          ...authHeaders(user)
+        },
+        body: JSON.stringify({ status })
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(data?.message || data?.error || "Não foi possível alterar o status.");
+      }
+      await refreshAdminOverview();
+      setAdminSuccess(status === "active" ? "Galeria ativada." : "Galeria inativada.");
+    } catch (error) {
+      setAdminError(error instanceof Error ? error.message : "Não foi possível alterar o status.");
+    } finally {
+      setAdminActionLoading("");
+    }
   }
 
   async function deleteGallery(id: string) {
     if (!user || !isAdmin) return;
-    await fetch(apiUrl(`/galerias/admin/galleries/${id}`), {
-      method: "DELETE",
-      credentials: "include",
-      headers: authHeaders(user)
-    });
-    await refreshAdminOverview();
+    if (!window.confirm("Excluir esta galeria e seus códigos de acesso?")) return;
+    setAdminActionLoading(`gallery-delete-${id}`);
+    setAdminError("");
+    setAdminSuccess("");
+    try {
+      const response = await fetch(apiUrl(`/galerias/admin/galleries/${id}`), {
+        method: "DELETE",
+        credentials: "include",
+        headers: authHeaders(user)
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(data?.message || data?.error || "Não foi possível excluir a galeria.");
+      }
+      await refreshAdminOverview();
+      setAdminSuccess("Galeria excluída.");
+    } catch (error) {
+      setAdminError(error instanceof Error ? error.message : "Não foi possível excluir a galeria.");
+    } finally {
+      setAdminActionLoading("");
+    }
   }
 
   async function deleteCode(id: string) {
     if (!user || !isAdmin) return;
-    await fetch(apiUrl(`/galerias/admin/codes/${id}`), {
-      method: "DELETE",
-      credentials: "include",
-      headers: authHeaders(user)
-    });
-    await refreshAdminOverview();
+    if (!window.confirm("Excluir este código de acesso?")) return;
+    setAdminActionLoading(`code-delete-${id}`);
+    setAdminError("");
+    setAdminSuccess("");
+    try {
+      const response = await fetch(apiUrl(`/galerias/admin/codes/${id}`), {
+        method: "DELETE",
+        credentials: "include",
+        headers: authHeaders(user)
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(data?.message || data?.error || "Não foi possível excluir o código.");
+      }
+      await refreshAdminOverview();
+      setAdminSuccess("Código excluído.");
+    } catch (error) {
+      setAdminError(error instanceof Error ? error.message : "Não foi possível excluir o código.");
+    } finally {
+      setAdminActionLoading("");
+    }
   }
 
   async function toggleCodeActive(code: AccessCode) {
     if (!user || !isAdmin) return;
-    await fetch(apiUrl(`/galerias/admin/codes/${code._id}`), {
-      method: "PATCH",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-        ...authHeaders(user)
-      },
-      body: JSON.stringify({ active: !code.active })
-    });
-    await refreshAdminOverview();
+    setAdminActionLoading(`code-status-${code._id}`);
+    setAdminError("");
+    setAdminSuccess("");
+    try {
+      const response = await fetch(apiUrl(`/galerias/admin/codes/${code._id}`), {
+        method: "PATCH",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          ...authHeaders(user)
+        },
+        body: JSON.stringify({ active: !code.active })
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(data?.message || data?.error || "Não foi possível alterar o código.");
+      }
+      await refreshAdminOverview();
+      setAdminSuccess(code.active ? "Código inativado." : "Código ativado.");
+    } catch (error) {
+      setAdminError(error instanceof Error ? error.message : "Não foi possível alterar o código.");
+    } finally {
+      setAdminActionLoading("");
+    }
+  }
+
+  async function copyAccessCode(value: string) {
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setAdminSuccess("Código copiado.");
+      setAdminError("");
+    } catch {
+      setAdminError("Não foi possível copiar o código automaticamente.");
+    }
   }
 
   function startEditGallery(gallery: Gallery) {
@@ -778,39 +1061,6 @@ function App() {
   }
 
   const galleryTitle = gallerySession?.gallery?.title || "Acessar minha galeria";
-  const adminGalleryCards = useMemo<PhotoStackItem[]>(() => {
-    return (adminOverview.galleries || []).slice(0, 5).map((gallery, index) => {
-      const eventType = String(gallery.eventType || gallery.title || "").toLowerCase();
-      const image =
-        eventType.includes("casamento")
-          ? services[0].image
-          : eventType.includes("anivers")
-            ? services[1].image
-            : eventType.includes("formatura")
-              ? services[2].image
-              : services[3].image;
-
-      return {
-        id: gallery._id,
-        image,
-        title: gallery.title,
-        subtitle: `${gallery.eventType || "Evento privado"} • ${gallery.slug}`,
-        price: gallery.status === "active" ? "Ativa" : gallery.status === "archived" ? "Arquivada" : "Rascunho",
-        featured: index === 0 || gallery.status === "active"
-      };
-    });
-  }, [adminOverview.galleries]);
-
-  const adminStats = useMemo(
-    () => [
-      { label: "Galerias", value: adminOverview.galleries.length },
-      { label: "Ativas", value: adminOverview.galleries.filter((gallery) => gallery.status === "active").length },
-      { label: "Códigos ativos", value: adminOverview.accessCodes.filter((code) => code.active).length },
-      { label: "Pedidos pagos", value: adminOverview.purchases.filter((purchase) => purchase.pago || purchase.status === "paid").length }
-    ],
-    [adminOverview.accessCodes, adminOverview.galleries, adminOverview.purchases]
-  );
-
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#050505] text-white">
       <div aria-hidden="true" className="fixed inset-0 -z-20 bg-[radial-gradient(circle_at_top_left,rgba(255,26,26,0.14),transparent_26%),radial-gradient(circle_at_80%_20%,rgba(255,255,255,0.06),transparent_18%),linear-gradient(180deg,#050505_0%,#070707_42%,#0b0b0d_100%)]" />
@@ -1178,155 +1428,342 @@ function App() {
         ) : null}
 
         {page === "admin" && isAdmin ? (
-          <section className="relative mx-auto max-w-7xl space-y-6 px-4 py-10 lg:px-6">
-            <div className="pointer-events-none absolute inset-x-4 top-6 -z-20 h-[520px] rounded-[2.25rem] bg-[url('https://images.unsplash.com/photo-1517048676732-d65bc937f952?auto=format&fit=crop&w=1600&q=80')] bg-cover bg-center opacity-15 blur-[1px]" />
-            <div className="pointer-events-none absolute inset-x-4 top-6 -z-10 h-[520px] rounded-[2.25rem] bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.12),transparent_42%),linear-gradient(135deg,rgba(0,0,0,0.95),rgba(24,24,27,0.9))]" />
-            <motion.div
+          <section className="relative mx-auto max-w-7xl space-y-6 px-4 py-8 lg:px-6 lg:py-12">
+            <motion.header
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.2 }}
-              className="overflow-hidden rounded-[2rem] border border-white/10 bg-black/75 shadow-2xl shadow-black/30 backdrop-blur-xl"
+              className="overflow-hidden rounded-[2rem] border border-white/10 bg-[radial-gradient(circle_at_top_right,rgba(239,68,68,0.18),transparent_34%),linear-gradient(135deg,rgba(8,8,10,0.98),rgba(18,18,22,0.94))] p-6 shadow-2xl shadow-black/30 md:p-8"
             >
-              <div className="border-b border-white/10 px-6 py-6 md:px-8">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-                  <div>
-                    <div className="text-xs font-semibold uppercase tracking-[0.28em] text-white/45">Admin</div>
-                    <h2 className="mt-2 text-3xl font-black tracking-[-0.05em] sm:text-5xl">Painel administrativo</h2>
-                    <p className="mt-3 max-w-2xl text-sm leading-6 text-white/60">Fluxo do evento, uploads, códigos e pedidos em uma visão única para o dono do login 123.</p>
-                  </div>
-                  <button type="button" onClick={() => setPage("home")} className="rounded-full border border-white/10 bg-white/[0.06] px-4 py-2 text-sm font-semibold text-white/85 transition hover:bg-white/[0.1]">Voltar</button>
+              <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.28em] text-red-300/80">Operação Fauzi Eventos</div>
+                  <h2 className="mt-2 text-3xl font-black tracking-[-0.05em] sm:text-5xl">Painel administrativo</h2>
+                  <p className="mt-3 max-w-2xl text-sm leading-6 text-white/60">
+                    Gerencie galerias, acessos, fotos e pedidos sem sair do fluxo operacional.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    disabled={adminLoading}
+                    onClick={() => void refreshAdminOverview()}
+                    className="rounded-full border border-white/10 bg-white/[0.06] px-4 py-2 text-sm font-semibold text-white/85 disabled:opacity-50"
+                  >
+                    {adminLoading ? "Atualizando..." : "Atualizar dados"}
+                  </button>
+                  <button type="button" onClick={() => setPage("home")} className="rounded-full bg-red-500 px-4 py-2 text-sm font-bold text-white hover:bg-red-400">
+                    Voltar para o site
+                  </button>
                 </div>
               </div>
+            </motion.header>
 
-              <div className="grid gap-3 border-b border-white/10 px-6 py-5 md:grid-cols-4 md:px-8">
-                {adminStats.map((stat) => (
-                  <div key={stat.label} className="rounded-[1.25rem] border border-white/10 bg-white/[0.05] p-4">
-                    <div className="text-xs font-semibold uppercase tracking-[0.24em] text-white/45">{stat.label}</div>
-                    <div className="mt-2 text-3xl font-black tracking-[-0.05em] text-white">{stat.value}</div>
-                  </div>
-                ))}
-              </div>
+            <AdminFeedback
+              error={adminError}
+              success={adminSuccess}
+              onDismiss={() => {
+                setAdminError("");
+                setAdminSuccess("");
+              }}
+            />
 
-              <div className="px-4 py-6 md:px-6 md:py-8">
-                <ScrollTriggered
-                  items={adminGalleryCards.length ? adminGalleryCards : services.map((service) => ({
-                    id: service.id,
-                    image: service.image,
-                    title: service.title,
-                    subtitle: service.subtitle,
-                    price: formatBRL(service.price),
-                    featured: true
-                  }))}
-                  onAction={(id) => {
-                    const gallery = adminOverview.galleries.find((item) => item._id === id);
-                    if (gallery) startEditGallery(gallery);
-                  }}
-                />
-              </div>
-            </motion.div>
-
-            <div className="grid gap-6 xl:grid-cols-[1.04fr_0.96fr]">
-              <div className="rounded-[1.75rem] border border-white/10 bg-white/[0.05] p-6">
-                <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.24em] text-white/45">
-                  <PackageSearch className="h-4 w-4" />
-                  Fluxo do evento
-                </div>
-                <div className="mt-5 space-y-3">
-                  {[
-                    "1. Criar galeria",
-                    "2. Gerar código",
-                    "3. Subir fotos",
-                    "4. Validar pagamento e liberar download"
-                  ].map((item, index) => (
-                    <motion.div
-                      key={item}
-                      initial={{ opacity: 0, y: 8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.18, delay: index * 0.04 }}
-                      className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-4"
-                    >
-                      <div className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/[0.08] text-xs font-black text-white/90">0{index + 1}</div>
-                      <div className="text-sm text-white/78">{item}</div>
-                    </motion.div>
-                  ))}
-                </div>
-                <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                  {adminOverview.galleries.slice(0, 4).map((gallery) => (
-                    <div key={gallery._id} className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-                      <div className="text-sm font-semibold text-white">{gallery.title}</div>
-                      <div className="mt-1 text-xs text-white/55">{gallery.status || "draft"}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="space-y-6">
-                <div className="rounded-[1.75rem] border border-white/10 bg-white/[0.05] p-6">
-                  <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.24em] text-white/45">
-                    <ReceiptText className="h-4 w-4" />
-                    Resumo operacional
-                  </div>
-                  <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                    {[
-                      { label: "Galerias", value: adminOverview.galleries.length },
-                      { label: "Códigos", value: adminOverview.accessCodes.length },
-                      { label: "Pedidos", value: adminOverview.purchases.length },
-                      { label: "Pagos", value: adminOverview.purchases.filter((purchase) => purchase.pago || purchase.status === "paid").length }
-                    ].map((item) => (
-                      <div key={item.label} className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-                        <div className="text-xs font-semibold uppercase tracking-[0.24em] text-white/45">{item.label}</div>
-                        <div className="mt-2 text-3xl font-black tracking-[-0.05em] text-white">{item.value}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="rounded-[1.75rem] border border-white/10 bg-white/[0.05] p-6">
-                  <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.24em] text-white/45">
-                    <LockKeyhole className="h-4 w-4" />
-                    Gerar acesso
-                  </div>
-                  <div className="mt-5 grid gap-3">
-                    <select value={codeForm.galleryId} onChange={(event) => setCodeForm((current) => ({ ...current, galleryId: event.target.value }))} className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm outline-none">
-                      <option value="">Selecionar galeria</option>
-                      {adminOverview.galleries.map((gallery) => (<option key={gallery._id} value={gallery._id}>{gallery.title}</option>))}
-                    </select>
-                    <input value={codeForm.code} onChange={(event) => setCodeForm((current) => ({ ...current, code: event.target.value }))} placeholder="Senha/código" className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm outline-none placeholder:text-white/30" />
-                    <div className="grid gap-3 md:grid-cols-2">
-                      <input type="datetime-local" value={codeForm.expiresAt} onChange={(event) => setCodeForm((current) => ({ ...current, expiresAt: event.target.value }))} className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm outline-none" />
-                      <label className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm"><span>Ativo</span><input type="checkbox" checked={codeForm.active} onChange={(event) => setCodeForm((current) => ({ ...current, active: event.target.checked }))} /></label>
-                    </div>
-                    <button type="button" onClick={() => void saveCode()} className="inline-flex items-center justify-between rounded-2xl bg-white px-4 py-3 text-sm font-bold text-black">{editingCodeId ? "Salvar código" : "Criar código"}<ChevronRight className="h-4 w-4" /></button>
-                  </div>
-                </div>
-              </div>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+              <AdminStatCard label="Galerias" value={adminOverview.galleries.length} tone="accent" />
+              <AdminStatCard label="Fotos" value={adminOverview.photos.length} />
+              <AdminStatCard label="Pedidos" value={adminOverview.purchases.length} />
+              <AdminStatCard
+                label="Pagos"
+                value={adminOverview.purchases.filter((purchase) => purchase.pago || purchase.status === "paid").length}
+                tone="success"
+              />
+              <AdminStatCard
+                label="Receita aprovada"
+                value={formatBRL(
+                  adminOverview.purchases
+                    .filter((purchase) => purchase.pago || purchase.status === "paid")
+                    .reduce((total, purchase) => total + Number(purchase.total || 0), 0)
+                )}
+                tone="success"
+              />
             </div>
 
-            <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
-              <div className="rounded-[1.75rem] border border-white/10 bg-white/[0.05] p-6">
-                <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.24em] text-white/45"><Upload className="h-4 w-4" />Upload de fotos</div>
-                <form className="mt-5 grid gap-3" onSubmit={(event) => void uploadPhoto(event)}>
-                  <select value={uploadForm.galleryId} onChange={(event) => setUploadForm((current) => ({ ...current, galleryId: event.target.value }))} className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm outline-none">
-                    <option value="">Selecionar galeria</option>
-                    {adminOverview.galleries.map((gallery) => (<option key={gallery._id} value={gallery._id}>{gallery.title}</option>))}
-                  </select>
-                  <input name="foto" type="file" accept="image/*" className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm outline-none" />
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <input value={uploadForm.evento} onChange={(event) => setUploadForm((current) => ({ ...current, evento: event.target.value }))} placeholder="Evento" className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm outline-none placeholder:text-white/30" />
-                    <input value={uploadForm.cidade} onChange={(event) => setUploadForm((current) => ({ ...current, cidade: event.target.value }))} placeholder="Cidade" className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm outline-none placeholder:text-white/30" />
+            {adminLoading && !adminOverview.galleries.length ? (
+              <div className="grid min-h-48 place-items-center rounded-[1.75rem] border border-white/10 bg-white/[0.04] text-sm text-white/55">
+                Carregando painel administrativo...
+              </div>
+            ) : null}
+
+            <div className="grid gap-6 xl:grid-cols-2">
+              <section className="rounded-[1.75rem] border border-white/10 bg-white/[0.045] p-5 md:p-6">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-[0.24em] text-white/45">Galerias</div>
+                    <h3 className="mt-2 text-2xl font-black">{editingGalleryId ? "Editar galeria" : "Criar galeria"}</h3>
                   </div>
-                  <button type="submit" className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-bold text-black">Enviar foto<ChevronRight className="h-4 w-4" /></button>
+                  {editingGalleryId ? (
+                    <button type="button" onClick={() => setEditingGalleryId(null)} className="text-sm font-semibold text-white/55 hover:text-white">
+                      Cancelar edição
+                    </button>
+                  ) : null}
+                </div>
+
+                <div className="mt-5 grid gap-4">
+                  <label className="grid gap-2" htmlFor="admin-gallery-title">
+                    <span className="text-sm font-semibold text-white/70">Título *</span>
+                    <input id="admin-gallery-title" value={galleryForm.title} onChange={(event) => setGalleryForm((current) => ({ ...current, title: event.target.value }))} className="rounded-2xl border border-white/10 bg-black/35 px-4 py-3 outline-none focus:border-red-400/40" />
+                  </label>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <label className="grid gap-2">
+                      <span className="text-sm font-semibold text-white/70">Slug *</span>
+                      <input value={galleryForm.slug} onChange={(event) => setGalleryForm((current) => ({ ...current, slug: event.target.value }))} placeholder="casamento-ana-e-joao" className="rounded-2xl border border-white/10 bg-black/35 px-4 py-3 outline-none focus:border-red-400/40" />
+                    </label>
+                    <label className="grid gap-2">
+                      <span className="text-sm font-semibold text-white/70">Tipo de evento</span>
+                      <input value={galleryForm.eventType} onChange={(event) => setGalleryForm((current) => ({ ...current, eventType: event.target.value }))} className="rounded-2xl border border-white/10 bg-black/35 px-4 py-3 outline-none focus:border-red-400/40" />
+                    </label>
+                  </div>
+                  <label className="grid gap-2">
+                    <span className="text-sm font-semibold text-white/70">Descrição</span>
+                    <textarea value={galleryForm.description} onChange={(event) => setGalleryForm((current) => ({ ...current, description: event.target.value }))} rows={3} className="resize-none rounded-2xl border border-white/10 bg-black/35 px-4 py-3 outline-none focus:border-red-400/40" />
+                  </label>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <label className="grid gap-2">
+                      <span className="text-sm font-semibold text-white/70">Cliente</span>
+                      <input value={galleryForm.customerName} onChange={(event) => setGalleryForm((current) => ({ ...current, customerName: event.target.value }))} className="rounded-2xl border border-white/10 bg-black/35 px-4 py-3 outline-none focus:border-red-400/40" />
+                    </label>
+                    <label className="grid gap-2">
+                      <span className="text-sm font-semibold text-white/70">Email do cliente</span>
+                      <input type="email" value={galleryForm.customerEmail} onChange={(event) => setGalleryForm((current) => ({ ...current, customerEmail: event.target.value }))} className="rounded-2xl border border-white/10 bg-black/35 px-4 py-3 outline-none focus:border-red-400/40" />
+                    </label>
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <label className="grid gap-2">
+                      <span className="text-sm font-semibold text-white/70">Data do evento</span>
+                      <input type="date" value={galleryForm.eventDate} onChange={(event) => setGalleryForm((current) => ({ ...current, eventDate: event.target.value }))} className="rounded-2xl border border-white/10 bg-black/35 px-4 py-3 outline-none focus:border-red-400/40" />
+                    </label>
+                    <label className="grid gap-2">
+                      <span className="text-sm font-semibold text-white/70">Status</span>
+                      <select value={galleryForm.status} onChange={(event) => setGalleryForm((current) => ({ ...current, status: event.target.value as Gallery["status"] }))} className="rounded-2xl border border-white/10 bg-black/35 px-4 py-3 outline-none focus:border-red-400/40">
+                        <option value="draft">Rascunho</option>
+                        <option value="active">Ativa</option>
+                        <option value="archived">Arquivada</option>
+                      </select>
+                    </label>
+                  </div>
+                  <button type="button" disabled={adminActionLoading === "gallery"} onClick={() => void saveGallery()} className="rounded-2xl bg-red-500 px-5 py-3 text-sm font-bold text-white hover:bg-red-400 disabled:opacity-50">
+                    {adminActionLoading === "gallery" ? "Salvando..." : editingGalleryId ? "Salvar alterações" : "Criar galeria"}
+                  </button>
+                </div>
+              </section>
+
+              <section className="rounded-[1.75rem] border border-white/10 bg-white/[0.045] p-5 md:p-6">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-[0.24em] text-white/45">Acesso privado</div>
+                    <h3 className="mt-2 text-2xl font-black">{editingCodeId ? "Editar código" : "Gerar código"}</h3>
+                  </div>
+                  {editingCodeId ? (
+                    <button type="button" onClick={() => setEditingCodeId(null)} className="text-sm font-semibold text-white/55 hover:text-white">
+                      Cancelar edição
+                    </button>
+                  ) : null}
+                </div>
+
+                {lastCreatedCode ? (
+                  <div className="mt-5 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-200/70">Código recém-criado</div>
+                    <div className="mt-2 flex items-center justify-between gap-3">
+                      <code className="min-w-0 truncate text-lg font-black text-emerald-100">{lastCreatedCode}</code>
+                      <button type="button" onClick={() => void copyAccessCode(lastCreatedCode)} className="inline-flex shrink-0 items-center gap-2 rounded-full bg-emerald-400 px-3 py-2 text-xs font-bold text-emerald-950">
+                        <Copy className="h-4 w-4" /> Copiar código
+                      </button>
+                    </div>
+                    <p className="mt-2 text-xs leading-5 text-emerald-100/60">Por segurança, o código não pode ser recuperado depois desta sessão.</p>
+                  </div>
+                ) : null}
+
+                <div className="mt-5 grid gap-4">
+                  <label className="grid gap-2" htmlFor="admin-code-gallery">
+                    <span className="text-sm font-semibold text-white/70">Galeria *</span>
+                    <select id="admin-code-gallery" value={codeForm.galleryId} onChange={(event) => setCodeForm((current) => ({ ...current, galleryId: event.target.value }))} className="rounded-2xl border border-white/10 bg-black/35 px-4 py-3 outline-none focus:border-red-400/40">
+                      <option value="">Selecionar galeria</option>
+                      {adminOverview.galleries.map((gallery) => <option key={gallery._id} value={gallery._id}>{gallery.title}</option>)}
+                    </select>
+                  </label>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <label className="grid gap-2">
+                      <span className="text-sm font-semibold text-white/70">Identificação</span>
+                      <input value={codeForm.label} onChange={(event) => setCodeForm((current) => ({ ...current, label: event.target.value }))} placeholder="Família da noiva" className="rounded-2xl border border-white/10 bg-black/35 px-4 py-3 outline-none focus:border-red-400/40" />
+                    </label>
+                    <label className="grid gap-2">
+                      <span className="text-sm font-semibold text-white/70">{editingCodeId ? "Nova senha opcional" : "Senha/código *"}</span>
+                      <input value={codeForm.code} onChange={(event) => setCodeForm((current) => ({ ...current, code: event.target.value }))} placeholder="EVENTO2026" className="rounded-2xl border border-white/10 bg-black/35 px-4 py-3 outline-none focus:border-red-400/40" />
+                    </label>
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <label className="grid gap-2">
+                      <span className="text-sm font-semibold text-white/70">Expira em</span>
+                      <input type="datetime-local" value={codeForm.expiresAt} onChange={(event) => setCodeForm((current) => ({ ...current, expiresAt: event.target.value }))} className="rounded-2xl border border-white/10 bg-black/35 px-4 py-3 outline-none focus:border-red-400/40" />
+                    </label>
+                    <label className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm">
+                      <span className="font-semibold text-white/70">Código ativo</span>
+                      <input type="checkbox" checked={codeForm.active} onChange={(event) => setCodeForm((current) => ({ ...current, active: event.target.checked }))} />
+                    </label>
+                  </div>
+                  <button type="button" disabled={adminActionLoading === "code"} onClick={() => void saveCode()} className="rounded-2xl bg-white px-5 py-3 text-sm font-bold text-black disabled:opacity-50">
+                    {adminActionLoading === "code" ? "Salvando..." : editingCodeId ? "Salvar código" : "Criar código"}
+                  </button>
+                </div>
+              </section>
+            </div>
+
+            <div className="grid gap-6 xl:grid-cols-2">
+              <section className="rounded-[1.75rem] border border-white/10 bg-white/[0.045] p-5 md:p-6">
+                <h3 className="text-xl font-black">Galerias cadastradas</h3>
+                <div className="mt-5 space-y-3">
+                  {adminOverview.galleries.length ? adminOverview.galleries.map((gallery) => (
+                    <article key={gallery._id} className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h4 className="font-bold text-white">{gallery.title}</h4>
+                            <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] ${gallery.status === "active" ? "bg-emerald-500/15 text-emerald-200" : "bg-white/10 text-white/55"}`}>
+                              {gallery.status === "active" ? "Ativa" : gallery.status === "archived" ? "Arquivada" : "Rascunho"}
+                            </span>
+                          </div>
+                          <p className="mt-1 truncate text-sm text-white/50">{gallery.slug}</p>
+                          <p className="mt-2 text-xs text-white/40">{adminOverview.photos.filter((photo) => String(photo.galleryId) === String(gallery._id)).length} fotos</p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <button type="button" onClick={() => startEditGallery(gallery)} className="rounded-full border border-white/10 px-3 py-2 text-xs font-semibold text-white/75">Editar</button>
+                          <button type="button" disabled={adminActionLoading === `gallery-status-${gallery._id}`} onClick={() => void updateGalleryStatus(gallery._id, gallery.status === "active" ? "archived" : "active")} className="rounded-full border border-red-400/20 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-100 disabled:opacity-50">
+                            {gallery.status === "active" ? "Inativar" : "Ativar"}
+                          </button>
+                          <button type="button" disabled={adminActionLoading === `gallery-delete-${gallery._id}`} onClick={() => void deleteGallery(gallery._id)} className="rounded-full border border-white/10 px-3 py-2 text-xs font-semibold text-white/55 hover:border-red-400/30 hover:text-red-100">Excluir</button>
+                        </div>
+                      </div>
+                    </article>
+                  )) : <div className="rounded-2xl border border-dashed border-white/10 p-6 text-center text-sm text-white/45">Nenhuma galeria criada.</div>}
+                </div>
+              </section>
+
+              <section className="rounded-[1.75rem] border border-white/10 bg-white/[0.045] p-5 md:p-6">
+                <h3 className="text-xl font-black">Códigos de acesso</h3>
+                <div className="mt-5 space-y-3">
+                  {adminOverview.accessCodes.length ? adminOverview.accessCodes.map((code) => {
+                    const gallery = adminOverview.galleries.find((item) => String(item._id) === String(code.galleryId));
+                    return (
+                      <article key={code._id} className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h4 className="font-bold">{code.label || "Acesso sem identificação"}</h4>
+                              <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] ${code.active ? "bg-emerald-500/15 text-emerald-200" : "bg-white/10 text-white/50"}`}>{code.active ? "Ativo" : "Inativo"}</span>
+                            </div>
+                            <p className="mt-1 text-sm text-white/50">{gallery?.title || "Galeria não encontrada"}</p>
+                            <p className="mt-2 text-xs text-white/35">Senha protegida por hash</p>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <button type="button" onClick={() => startEditCode(code)} className="rounded-full border border-white/10 px-3 py-2 text-xs font-semibold text-white/75">Editar</button>
+                            <button type="button" disabled={adminActionLoading === `code-status-${code._id}`} onClick={() => void toggleCodeActive(code)} className="rounded-full border border-red-400/20 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-100 disabled:opacity-50">{code.active ? "Inativar" : "Ativar"}</button>
+                            <button type="button" disabled={adminActionLoading === `code-delete-${code._id}`} onClick={() => void deleteCode(code._id)} className="rounded-full border border-white/10 px-3 py-2 text-xs font-semibold text-white/55 hover:border-red-400/30 hover:text-red-100">Excluir</button>
+                          </div>
+                        </div>
+                      </article>
+                    );
+                  }) : <div className="rounded-2xl border border-dashed border-white/10 p-6 text-center text-sm text-white/45">Nenhum código criado.</div>}
+                </div>
+              </section>
+            </div>
+
+            <section className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
+              <div className="rounded-[1.75rem] border border-white/10 bg-white/[0.045] p-5 md:p-6">
+                <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.24em] text-white/45"><Upload className="h-4 w-4" />Upload de fotos</div>
+                <form className="mt-5 grid gap-4" onSubmit={(event) => void uploadPhoto(event)}>
+                  <label className="grid gap-2" htmlFor="admin-upload-gallery">
+                    <span className="text-sm font-semibold text-white/70">Galeria *</span>
+                    <select id="admin-upload-gallery" value={uploadForm.galleryId} onChange={(event) => setUploadForm((current) => ({ ...current, galleryId: event.target.value }))} className="rounded-2xl border border-white/10 bg-black/35 px-4 py-3 outline-none">
+                      <option value="">Selecionar galeria</option>
+                      {adminOverview.galleries.map((gallery) => <option key={gallery._id} value={gallery._id}>{gallery.title}</option>)}
+                    </select>
+                  </label>
+                  <label className="grid gap-2" htmlFor="admin-upload-file">
+                    <span className="text-sm font-semibold text-white/70">Imagem *</span>
+                    <input id="admin-upload-file" name="foto" type="file" accept="image/jpeg,image/png,image/webp,image/avif" disabled={!uploadForm.galleryId || uploadLoading} className="rounded-2xl border border-dashed border-white/15 bg-black/35 px-4 py-5 text-sm file:mr-4 file:rounded-full file:border-0 file:bg-white file:px-3 file:py-2 file:text-xs file:font-bold file:text-black disabled:opacity-45" />
+                  </label>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <label className="grid gap-2">
+                      <span className="text-sm font-semibold text-white/70">Evento</span>
+                      <input value={uploadForm.evento} onChange={(event) => setUploadForm((current) => ({ ...current, evento: event.target.value }))} className="rounded-2xl border border-white/10 bg-black/35 px-4 py-3 outline-none" />
+                    </label>
+                    <label className="grid gap-2">
+                      <span className="text-sm font-semibold text-white/70">Cidade</span>
+                      <input value={uploadForm.cidade} onChange={(event) => setUploadForm((current) => ({ ...current, cidade: event.target.value }))} className="rounded-2xl border border-white/10 bg-black/35 px-4 py-3 outline-none" />
+                    </label>
+                  </div>
+                  <label className="grid gap-2">
+                    <span className="text-sm font-semibold text-white/70">Preço</span>
+                    <input type="number" min="0" step="0.01" value={uploadForm.preco} onChange={(event) => setUploadForm((current) => ({ ...current, preco: Number(event.target.value) }))} className="rounded-2xl border border-white/10 bg-black/35 px-4 py-3 outline-none" />
+                  </label>
+                  {!adminOverview.galleries.length ? <p className="text-sm text-amber-200/70">Crie uma galeria antes de enviar fotos.</p> : null}
+                  <button type="submit" disabled={!uploadForm.galleryId || uploadLoading} className="rounded-2xl bg-red-500 px-5 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-45">
+                    {uploadLoading ? "Enviando foto..." : "Enviar foto"}
+                  </button>
                 </form>
               </div>
 
-              <div className="rounded-[1.75rem] border border-white/10 bg-white/[0.05] p-6">
-                <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.24em] text-white/45"><SquarePen className="h-4 w-4" />Galerias e códigos</div>
-                <div className="mt-5 space-y-3">
-                  {adminOverview.galleries.map((gallery) => (<div key={gallery._id} className="rounded-2xl border border-white/10 bg-black/30 p-4"><div className="font-semibold text-white">{gallery.title}</div><div className="text-sm text-white/60">{gallery.slug}</div></div>))}
-                  {adminOverview.accessCodes.map((code) => (<div key={code._id} className="rounded-2xl border border-white/10 bg-black/30 p-4"><div className="font-semibold text-white">{code.label || "Código sem rótulo"}</div><div className="text-xs text-white/45">{code.active ? "Ativo" : "Inativo"}</div></div>))}
+              <div className="rounded-[1.75rem] border border-white/10 bg-white/[0.045] p-5 md:p-6">
+                <h3 className="text-xl font-black">Fotos recentes</h3>
+                <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {adminOverview.photos.length ? adminOverview.photos.map((photo) => {
+                    const gallery = adminOverview.galleries.find((item) => String(item._id) === String(photo.galleryId));
+                    const purchased = adminOverview.purchases.some((purchase) => (purchase.pago || purchase.status === "paid") && (purchase.photoIds || []).map(String).includes(String(photo._id)));
+                    return (
+                      <article key={photo._id} className="overflow-hidden rounded-2xl border border-white/10 bg-black/30">
+                        <div className="relative h-36 bg-zinc-900">
+                          <img src={photo.sourceUrl || photo.url} alt={photo.evento || "Foto"} className="h-full w-full object-cover" />
+                          <span className={`absolute left-3 top-3 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase ${purchased ? "bg-emerald-500 text-emerald-950" : "bg-black/70 text-white/70"}`}>{purchased ? "Comprada" : "Disponível"}</span>
+                        </div>
+                        <div className="p-4">
+                          <h4 className="truncate font-bold">{photo.evento || "Foto sem título"}</h4>
+                          <p className="mt-1 truncate text-xs text-white/45">{gallery?.title || "Sem galeria"}</p>
+                          <div className="mt-3 flex items-center justify-between text-xs">
+                            <span className="font-bold text-white">{formatBRL(photo.preco || 0)}</span>
+                            <span className="text-white/40">{photo.storageProvider || "local"}</span>
+                          </div>
+                        </div>
+                      </article>
+                    );
+                  }) : <div className="col-span-full rounded-2xl border border-dashed border-white/10 p-6 text-center text-sm text-white/45">Nenhuma foto enviada.</div>}
                 </div>
               </div>
-            </div>
+            </section>
+
+            <section className="rounded-[1.75rem] border border-white/10 bg-white/[0.045] p-5 md:p-6">
+              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.24em] text-white/45"><ReceiptText className="h-4 w-4" />Pedidos</div>
+              <div className="mt-5 grid gap-3 md:grid-cols-2">
+                {adminOverview.purchases.length ? adminOverview.purchases.map((purchase) => {
+                  const paid = purchase.pago || purchase.status === "paid";
+                  return (
+                    <article key={purchase._id} className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <h4 className="truncate font-bold">Pedido {String(purchase._id).slice(-8)}</h4>
+                          <p className="mt-1 text-xs text-white/45">{purchase.type === "service" ? "Serviço" : `${purchase.photoIds?.length || 0} foto(s)`}</p>
+                        </div>
+                        <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] ${paid ? "bg-emerald-500/15 text-emerald-200" : purchase.status === "failed" ? "bg-red-500/15 text-red-200" : "bg-amber-500/15 text-amber-100"}`}>
+                          {paid ? "Pago" : purchase.status === "failed" ? "Falhou" : purchase.status === "canceled" ? "Cancelado" : "Pendente"}
+                        </span>
+                      </div>
+                      <div className="mt-4 flex items-center justify-between border-t border-white/10 pt-3">
+                        <span className="text-xs text-white/45">{purchase.paymentMethod || "Pagamento"}</span>
+                        <span className="font-black">{formatBRL(purchase.total || 0)}</span>
+                      </div>
+                    </article>
+                  );
+                }) : <div className="col-span-full rounded-2xl border border-dashed border-white/10 p-6 text-center text-sm text-white/45">Nenhum pedido encontrado.</div>}
+              </div>
+            </section>
           </section>
         ) : null}
       </main>
@@ -1399,23 +1836,32 @@ function App() {
                       ))}
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => void createCheckout({ serviceId: serviceTarget.id })}
-                      className="inline-flex items-center justify-between rounded-2xl bg-white px-4 py-3 text-sm font-bold text-black transition hover:scale-[1.01]"
-                    >
-                      Comprar serviço
-                      <ChevronRight className="h-4 w-4" />
-                    </button>
+                     <button
+                       type="button"
+                       disabled={checkoutLoading}
+                       onClick={() => void createCheckout({ serviceId: serviceTarget.id })}
+                       className="inline-flex items-center justify-between rounded-2xl bg-white px-4 py-3 text-sm font-bold text-black transition hover:scale-[1.01] disabled:cursor-wait disabled:opacity-60"
+                     >
+                       {checkoutLoading ? "Abrindo checkout..." : "Comprar serviço"}
+                       <ChevronRight className="h-4 w-4" />
+                     </button>
 
-                    <button
-                      type="button"
-                      onClick={() => openWhatsAppForService(serviceTarget)}
-                      className="inline-flex items-center justify-between rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-500/15"
-                    >
-                      Comprar por WhatsApp
-                      <ChevronRight className="h-4 w-4" />
-                    </button>
+                     <button
+                       type="button"
+                       disabled={!WHATSAPP_PHONE}
+                       title={!WHATSAPP_PHONE ? "WhatsApp não configurado" : undefined}
+                       onClick={() => openWhatsAppForService(serviceTarget)}
+                       className="inline-flex items-center justify-between rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-500/15 disabled:cursor-not-allowed disabled:opacity-45"
+                     >
+                       Comprar por WhatsApp
+                       <ChevronRight className="h-4 w-4" />
+                     </button>
+
+                     {checkoutError ? (
+                       <div role="alert" className="rounded-2xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+                         {checkoutError}
+                       </div>
+                     ) : null}
                   </div>
                 </div>
               </div>
@@ -1460,7 +1906,7 @@ function App() {
                 className="mt-2 w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm outline-none placeholder:text-white/30 focus:border-white/25"
               />
               {galleryError ? (
-                <div className="mt-3 rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm text-white/85">
+                <div role="alert" className="mt-3 rounded-2xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm text-red-100">
                   {galleryError}
                 </div>
               ) : null}
@@ -1474,10 +1920,11 @@ function App() {
                 </button>
                 <button
                   type="button"
+                  disabled={galleryLoading}
                   onClick={() => void submitGalleryAccess()}
-                  className="rounded-full bg-white px-5 py-3 text-sm font-bold text-black"
+                  className="rounded-full bg-white px-5 py-3 text-sm font-bold text-black disabled:cursor-wait disabled:opacity-60"
                 >
-                  Abrir galeria
+                  {galleryLoading ? "Validando acesso..." : "Abrir galeria"}
                 </button>
               </div>
             </motion.div>
@@ -1513,81 +1960,159 @@ function App() {
                 </button>
               </div>
 
-              <div className="grid gap-6 xl:grid-cols-[1fr_340px]">
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {galleryLoading ? (
+                <div className="grid min-h-[45vh] place-items-center rounded-[1.75rem] border border-white/10 bg-white/[0.04] p-8 text-center">
+                  <div>
+                    <div className="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-white/15 border-t-red-500" />
+                    <h3 className="mt-5 text-xl font-bold">Carregando galeria privada</h3>
+                    <p className="mt-2 text-sm text-white/55">Validando seu acesso e atualizando as fotos.</p>
+                  </div>
+                </div>
+              ) : !gallerySession.photos.length ? (
+                <div className="grid min-h-[45vh] place-items-center rounded-[1.75rem] border border-dashed border-white/15 bg-white/[0.04] p-8 text-center">
+                  <div className="max-w-md">
+                    <ImagePlus className="mx-auto h-10 w-10 text-red-300" />
+                    <h3 className="mt-5 text-2xl font-black">Nenhuma foto disponível nesta galeria</h3>
+                    <p className="mt-3 text-sm leading-6 text-white/60">
+                      As imagens deste evento ainda estão sendo preparadas. Atualize novamente em alguns instantes.
+                    </p>
+                    <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">
+                      <button
+                        type="button"
+                        onClick={loadGallerySession}
+                        className="rounded-full bg-white px-5 py-3 text-sm font-bold text-black"
+                      >
+                        Atualizar galeria
+                      </button>
+                      <button
+                        type="button"
+                        onClick={closeGallery}
+                        className="rounded-full border border-white/10 bg-white/[0.06] px-5 py-3 text-sm font-semibold text-white/80"
+                      >
+                        Sair da galeria
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+              <div className="grid gap-6 xl:grid-cols-[1fr_360px]">
+                <div className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-3">
                   {gallerySession.photos.map((photo) => {
-                    const selected = selectedPhotoIds.includes(String(photo._id));
-                    const owned = ownedPhotoIds.has(String(photo._id));
+                    const photoId = String(photo._id);
+                    const selected = selectedPhotoIds.includes(photoId);
+                    const owned = ownedPhotoIds.has(photoId);
                     return (
                       <motion.article
                         key={photo._id}
                         whileHover={{ y: -3 }}
                         transition={{ duration: 0.14 }}
-                        className={`overflow-hidden rounded-[1.5rem] border bg-white/[0.05] ${selected ? "border-white/25" : "border-white/10"}`}
+                        className={`group overflow-hidden rounded-[1.5rem] border bg-white/[0.05] transition ${
+                          owned
+                            ? "border-emerald-400/25 bg-emerald-500/[0.06]"
+                            : selected
+                              ? "border-red-400/45 bg-red-500/[0.08] shadow-[0_20px_60px_rgba(185,28,28,0.16)]"
+                              : "border-white/10 hover:border-white/20"
+                        }`}
                       >
-                        <div className="relative h-72">
-                          <img src={photo.url} alt={photo.evento || "Foto"} className="h-full w-full object-cover" />
+                        <div className="relative h-64 sm:h-72">
+                          <GalleryPhoto
+                            photoId={photoId}
+                            galleryToken={gallerySession.token}
+                            alt={photo.evento || "Foto da galeria"}
+                            className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.025]"
+                          />
                           <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/15 to-transparent" />
-                          <div className="absolute left-4 top-4 inline-flex rounded-full border border-white/10 bg-black/60 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.2em] text-white/75">
-                            {owned ? "Pago" : selected ? "Selecionada" : "Disponível"}
+                          <div className={`absolute left-4 top-4 inline-flex rounded-full border px-3 py-1 text-[11px] font-bold uppercase tracking-[0.2em] ${
+                            owned
+                              ? "border-emerald-300/25 bg-emerald-950/80 text-emerald-100"
+                              : selected
+                                ? "border-red-300/30 bg-red-950/80 text-red-100"
+                                : "border-white/10 bg-black/60 text-white/75"
+                          }`}>
+                            {owned ? "Comprada" : selected ? "Selecionada" : "Disponível"}
                           </div>
                         </div>
                         <div className="p-4">
-                          <h3 className="text-lg font-black tracking-[-0.03em]">{photo.evento}</h3>
-                          <p className="mt-1 text-sm text-white/60">{photo.cidade}</p>
-                          <div className="mt-4 flex items-center justify-between gap-2">
-                            <span className="text-sm font-semibold text-white/70">{formatBRL(photo.preco || 0)}</span>
-                            <button
-                              type="button"
-                              onClick={() => togglePhoto(String(photo._id))}
-                              className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-                                selected ? "bg-white text-black" : "border border-white/10 bg-white/[0.06] text-white/85"
-                              }`}
-                            >
-                              {selected ? "Remover" : "Selecionar"}
-                            </button>
+                          <h3 className="text-lg font-black tracking-[-0.03em]">{photo.evento || "Registro do evento"}</h3>
+                          <p className="mt-1 text-sm text-white/60">{photo.cidade || galleryTitle}</p>
+                          <div className="mt-4 flex items-center justify-between gap-3">
+                            <span className="text-sm font-bold text-white">{formatBRL(photo.preco || 0)}</span>
+                            {owned ? (
+                              <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-200">
+                                <BadgeCheck className="h-4 w-4" />
+                                Pagamento aprovado
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                aria-pressed={selected}
+                                onClick={() => togglePhoto(photoId)}
+                                className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                                  selected
+                                    ? "bg-red-500 text-white hover:bg-red-400"
+                                    : "border border-white/10 bg-white/[0.06] text-white/85 hover:border-red-400/35 hover:bg-red-500/10"
+                                }`}
+                              >
+                                {selected ? "Remover" : "Selecionar"}
+                              </button>
+                            )}
                           </div>
-                          <div className="mt-3">
-                            <button
-                              type="button"
-                              disabled={!owned}
-                              onClick={() => window.open(photo.url, "_blank", "noopener,noreferrer")}
-                              className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/40 px-4 py-2 text-sm font-semibold text-white/80 disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                              Baixar
-                              <ChevronRight className="h-4 w-4" />
-                            </button>
-                          </div>
+                          <button
+                            type="button"
+                            disabled={!owned || downloadingPhotoId === photoId}
+                            onClick={() => void downloadPurchasedPhoto(photoId)}
+                            className="mt-4 inline-flex w-full items-center justify-between rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm font-semibold text-white/80 disabled:cursor-not-allowed disabled:opacity-45"
+                          >
+                            {owned
+                              ? downloadingPhotoId === photoId
+                                ? "Preparando download..."
+                                : "Baixar foto comprada"
+                              : "Download após pagamento"}
+                            <ChevronRight className="h-4 w-4" />
+                          </button>
                         </div>
                       </motion.article>
                     );
                   })}
                 </div>
 
-                <aside className="rounded-[1.5rem] border border-white/10 bg-white/[0.05] p-5">
-                  <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.24em] text-white/45">
-                    <ShoppingBag className="h-4 w-4" />
-                    Carrinho
+                <aside className="rounded-[1.5rem] border border-white/10 bg-zinc-950/95 p-5 shadow-2xl shadow-black/30 xl:sticky xl:top-24 xl:self-start">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.24em] text-white/45">
+                      <ShoppingBag className="h-4 w-4" />
+                      Carrinho
+                    </div>
+                    <span className="rounded-full bg-red-500/15 px-3 py-1 text-xs font-bold text-red-100">
+                      {selectedPhotos.length} {selectedPhotos.length === 1 ? "foto" : "fotos"}
+                    </span>
                   </div>
-                  <div className="mt-4 space-y-3">
+                  <div className="mt-4 max-h-56 space-y-3 overflow-y-auto pr-1">
                     {selectedPhotos.length ? (
                       selectedPhotos.map((photo) => (
-                        <div key={photo._id} className="rounded-2xl border border-white/10 bg-black/30 p-3">
-                          <div className="text-sm font-semibold text-white">{photo.evento}</div>
-                          <div className="mt-1 text-xs text-white/60">{photo.cidade}</div>
-                          <div className="mt-2 text-sm font-bold text-white">{formatBRL(photo.preco || 0)}</div>
+                        <div key={photo._id} className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/30 p-3">
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-semibold text-white">{photo.evento || "Foto selecionada"}</div>
+                            <div className="mt-1 text-sm font-bold text-white">{formatBRL(photo.preco || 0)}</div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => togglePhoto(String(photo._id))}
+                            className="shrink-0 rounded-full border border-white/10 px-3 py-1.5 text-xs font-semibold text-white/65 hover:border-red-400/30 hover:text-red-100"
+                          >
+                            Remover
+                          </button>
                         </div>
                       ))
                     ) : (
-                      <div className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-white/60">
-                        Nenhuma foto selecionada ainda.
+                      <div className="rounded-2xl border border-dashed border-white/10 bg-black/30 p-4 text-sm leading-6 text-white/55">
+                        Selecione as fotos desejadas. O total será atualizado automaticamente.
                       </div>
                     )}
                   </div>
 
                   <div className="mt-5 flex items-center justify-between rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
                     <span className="text-sm text-white/65">Total</span>
-                    <span className="text-sm font-bold text-white">{formatBRL(selectedTotal)}</span>
+                    <span className="text-lg font-black text-white">{formatBRL(selectedTotal)}</span>
                   </div>
 
                   <div className="mt-5 grid gap-3">
@@ -1599,7 +2124,7 @@ function App() {
                           onClick={() => setPaymentMethod(method)}
                           className={`rounded-2xl border px-3 py-3 text-sm font-semibold capitalize transition ${
                             paymentMethod === method
-                              ? "border-white bg-white text-black"
+                              ? "border-red-400/40 bg-red-500 text-white"
                               : "border-white/10 bg-black/30 text-white/75 hover:bg-white/[0.08]"
                           }`}
                         >
@@ -1610,7 +2135,7 @@ function App() {
 
                     <button
                       type="button"
-                      disabled={!selectedPhotoIds.length}
+                      disabled={!selectedPhotoIds.length || checkoutLoading}
                       onClick={() =>
                         void createCheckout({
                           photoIds: selectedPhotoIds,
@@ -1618,25 +2143,40 @@ function App() {
                           accessCodeId: gallerySession.code?._id
                         })
                       }
-                      className="inline-flex items-center justify-between rounded-2xl bg-white px-4 py-3 text-sm font-bold text-black transition disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex items-center justify-between rounded-2xl bg-red-500 px-4 py-3 text-sm font-bold text-white transition hover:bg-red-400 disabled:cursor-not-allowed disabled:opacity-45"
                     >
-                      Comprar selecionadas
+                      {checkoutLoading ? "Abrindo checkout..." : "Comprar selecionadas"}
                       <ChevronRight className="h-4 w-4" />
                     </button>
 
                     <button
                       type="button"
+                      disabled={!WHATSAPP_PHONE || !selectedPhotoIds.length}
+                      title={!WHATSAPP_PHONE ? "WhatsApp não configurado" : undefined}
                       onClick={openWhatsAppForPhotos}
-                      className="inline-flex items-center justify-between rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-500/15"
+                      className="inline-flex items-center justify-between rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-500/15 disabled:cursor-not-allowed disabled:opacity-45"
                     >
                       Comprar por WhatsApp
                       <ChevronRight className="h-4 w-4" />
                     </button>
 
+                    {checkoutError ? (
+                      <div role="alert" className="rounded-2xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm leading-6 text-red-100">
+                        {checkoutError}
+                      </div>
+                    ) : null}
+
+                    {galleryActionError ? (
+                      <div role="alert" className="rounded-2xl border border-amber-300/20 bg-amber-400/10 px-4 py-3 text-sm leading-6 text-amber-100">
+                        {galleryActionError}
+                      </div>
+                    ) : null}
+
                     <button
                       type="button"
+                      disabled={galleryLoading}
                       onClick={loadGallerySession}
-                      className="inline-flex items-center justify-between rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm font-semibold text-white/80"
+                      className="inline-flex items-center justify-between rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm font-semibold text-white/80 disabled:cursor-wait disabled:opacity-50"
                     >
                       Atualizar galeria
                       <ChevronRight className="h-4 w-4" />
@@ -1644,6 +2184,7 @@ function App() {
                   </div>
                 </aside>
               </div>
+              )}
             </div>
           </motion.div>
         ) : null}
