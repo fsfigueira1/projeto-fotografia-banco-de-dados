@@ -50,7 +50,7 @@ function createAuthRouter({ User = UserModel, env = null } = {}) {
     async (req, res, next) => {
       try {
         const existing = await User.findOne({ email: req.body.email });
-        if (existing) {
+        if existing {
           return sendError(res, {
             status: 409,
             message: "Este email já está cadastrado.",
@@ -62,7 +62,7 @@ function createAuthRouter({ User = UserModel, env = null } = {}) {
         const user = await User.create({
           nome: req.body.nome,
           email: req.body.email,
-          senha,
+          senha: req.body.senha,
           role: "client"
         });
 
