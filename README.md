@@ -6,7 +6,7 @@ O projeto foi desenvolvido com foco em experiência do usuário, organização d
 
 ## 🚀 Demonstração
 
-🔗 Deploy: adicione aqui o link da Vercel  
+🔗 Deploy: ainda em desenvolvimenti 
 🔗 Repositório: https://github.com/fsfigueira1/projeto-fotografia-banco-de-dados
 
 ## ✨ Funcionalidades
